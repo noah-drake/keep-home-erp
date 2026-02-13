@@ -40,7 +40,17 @@ export default function GoodsPage() {
 
   const handleDelete = async (e: React.MouseEvent, id: string, name: string) => {
     e.stopPropagation()
-    if (!confirm(`DANGER: Are you sure you want to delete ${name}?`)) return
+    
+    // 1. Pre-flight check: Does this item have a transaction history?
+    const { data: history } = await supabase.from('inventory_transactions').select('id').eq('material_id', id).limit(1)
+    
+    if (history && history.length > 0) {
+      alert(`BLOCKED: "${name}" has existing transaction history or stock counts.\n\nTo force a cascade delete, you must open the Item Master Edit page.`)
+      return
+    }
+
+    if (!confirm(`Are you sure you want to delete ${name}?`)) return
+    
     const { error } = await supabase.from('materials').delete().eq('id', id)
     if (error) alert(error.message)
     else setGoods(goods.filter(g => g.material_id !== id))
@@ -106,9 +116,20 @@ export default function GoodsPage() {
                     onClick={() => router.push(`/materials/${item.material_id}`)}
                     className="hover:bg-gray-800/50 transition-colors group cursor-pointer"
                   >
+                   
                     <td className="p-4">
-                      <p className="font-bold text-sm text-gray-200 group-hover:text-purple-400 transition-colors">{item.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className={`font-bold text-sm transition-colors ${item.is_active === false ? 'text-gray-600 line-through' : 'text-gray-200 group-hover:text-purple-400'}`}>
+                          {item.name}
+                        </p>
+                        {item.is_active === false && (
+                          <span className="text-[8px] font-black uppercase tracking-widest bg-red-950 text-red-500 px-2 py-0.5 rounded-md border border-red-900/50">
+                            Inactive
+                          </span>
+                        )}
+                      </div>
                     </td>
+
                     <td className="p-4 hidden sm:table-cell">
                       <span className="text-xs font-bold text-gray-400 bg-black border border-gray-800 px-2 py-1 rounded-md">{item.category || 'None'}</span>
                     </td>
@@ -174,8 +195,9 @@ function ActionDropdown({ item, router, onDelete, onToggleActive }: any) {
             
             <div className="border-t border-gray-800 my-1"></div>
             
+            {/* Dynamic Active/Inactive Toggle */}
             <button onClick={(e) => { setIsOpen(false); onToggleActive(e) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-400 flex items-center gap-3">
-              <Ban size={14} /> Flag Inactive
+              <Ban size={14} /> {item.is_active === false ? 'Flag Active' : 'Flag Inactive'}
             </button>
             
             <button onClick={(e) => { setIsOpen(false); onDelete(e) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-red-950/50 hover:text-red-400 transition-colors text-red-500 flex items-center gap-3">

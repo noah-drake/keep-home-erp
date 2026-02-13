@@ -45,8 +45,9 @@ function ItemMasterContent() {
       
       const [roleRes, catRes, unitRes, locRes, matRes, stockRes, txRes] = await Promise.all([
         user ? supabase.from('organization_members').select('role').eq('organization_id', organization.id).eq('user_id', user.id).single() : Promise.resolve({ data: null }),
-        supabase.from('categories').select('*').eq('organization_id', organization.id),
-        supabase.from('units').select('*').eq('organization_id', organization.id),
+        // Look for Plant-specific OR Global (null) categories and units
+        supabase.from('categories').select('*').or(`organization_id.eq.${organization.id},organization_id.is.null`),
+        supabase.from('units').select('*').or(`organization_id.eq.${organization.id},organization_id.is.null`),
         supabase.from('locations').select('*').eq('organization_id', organization.id),
         supabase.from('materials').select('*').eq('id', itemId).single(),
         supabase.from('view_current_stock').select('current_stock').eq('material_id', itemId).single(),
@@ -105,7 +106,12 @@ function ItemMasterContent() {
   }
 
   const handleDelete = async () => {
-    if (!confirm(`DANGER: Are you sure you want to delete ${name}?`)) return
+    if (!confirm(`CASCADE DANGER: Are you sure you want to force delete ${name}? This will permanently erase ALL transaction history for this item. This cannot be undone.`)) return
+    
+    // 1. Explicitly wipe transaction history first to satisfy foreign key constraints
+    await supabase.from('inventory_transactions').delete().eq('material_id', itemId)
+    
+    // 2. Delete the actual material
     const { error } = await supabase.from('materials').delete().eq('id', itemId)
     if (error) alert(error.message)
     else router.push('/materials')
