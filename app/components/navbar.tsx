@@ -1,185 +1,148 @@
 'use client'
-import React, { useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { useState } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
+import { Settings, ChevronDown, Database, LogOut, Package, MapPin, Grid, Scale, Shield } from 'lucide-react'
 import { useOrganization } from '../context/OrganizationContext'
-import { 
-  Castle, 
-  Package, 
-  MapPin, 
-  History, 
-  ShoppingCart, 
-  ArrowLeftRight, 
-  Settings,
-  ChevronDown,
-  Menu,
-  X,
-  ShieldCheck,
-  Plus
-} from 'lucide-react'
+import { createClient } from '@supabase/supabase-js'
 
-// --- THE LOGO COMPONENT ---
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+
+// Custom SVG Logo for 'Keep' - High-end SaaS geometric fortress mark
 const KeepLogo = () => (
-  <div className="flex items-center gap-2 group">
-    <div className="relative">
-      <div className="w-9 h-9 bg-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-900/40 group-hover:bg-purple-500 transition-colors">
-        {/* Simplified Castle/Shield Icon */}
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M5 21V7L12 3L19 7V21L12 18L5 21Z" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-          <path d="M9 12V15" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-          <path d="M15 12V15" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-        </svg>
-      </div>
-      <div className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full border-2 border-black" />
-    </div>
-    <span className="text-xl font-black uppercase tracking-tighter italic text-white group-hover:text-purple-400 transition-colors">
-      Keep
-    </span>
-  </div>
+  <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-lg group-hover:scale-105 transition-transform">
+    <rect width="32" height="32" rx="8" fill="url(#keep_gradient)" />
+    {/* Geometric structural lines */}
+    <path d="M10 12V22L16 25.5L22 22V12L19 10.5V14H13V10.5L10 12Z" fill="white" />
+    <path d="M13 8L16 6.5L19 8V10.5L16 9L13 10.5V8Z" fill="#D8B4FE" />
+    <defs>
+      <linearGradient id="keep_gradient" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#9333EA" /> {/* purple-600 */}
+        <stop offset="1" stopColor="#4C1D95" /> {/* purple-900 */}
+      </linearGradient>
+    </defs>
+  </svg>
 )
 
 export default function Navbar() {
+  const router = useRouter()
   const pathname = usePathname()
   const { organization, allOrganizations, setOrganization } = useOrganization()
-  const [isOpen, setIsOpen] = useState(false)
-  const [showOrgDropdown, setShowOrgDropdown] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isMasterOpen, setIsMasterOpen] = useState(false)
 
-  const navItems = [
-    { name: 'My Keep', href: '/', icon: Castle },
-    { name: 'Transactions', href: '/inventory', icon: ArrowLeftRight },
-    { name: 'Shopping List', href: '/shopping', icon: ShoppingCart },
-    { name: 'Goods', href: '/materials', icon: Package },
-    { name: 'Stores', href: '/locations', icon: MapPin },
-    { name: 'Ledger', href: '/ledger', icon: History },
-  ]
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
+  if (pathname === '/login') return null
 
   return (
-    <nav className="sticky top-0 z-50 bg-black/80 backdrop-blur-xl border-b border-gray-800 font-sans">
-      <div className="max-w-7xl mx-auto px-4">
-        <div className="flex justify-between items-center h-20">
+    <nav className="bg-[#0a0a0a] border-b border-gray-800 p-4 sticky top-0 z-50 font-sans shadow-2xl">
+      <div className="max-w-7xl mx-auto flex justify-between items-center text-white">
+        
+        {/* LEFT: LOGO, PLANT SWITCHER & MAIN NAVIGATION */}
+        <div className="flex items-center gap-6">
           
-          {/* LEFT: LOGO & ORG SWITCHER */}
-          <div className="flex items-center gap-8">
-            <Link href="/">
-              <KeepLogo />
-            </Link>
+          {/* Brand Identity */}
+          <Link href="/" className="flex items-center gap-3 group">
+            <KeepLogo />
+            <span className="font-black text-2xl tracking-tighter uppercase italic text-gray-100 group-hover:text-purple-400 transition-colors">Keep</span>
+          </Link>
 
-            {/* ORG DROPDOWN (DESKTOP) */}
-            <div className="hidden md:block relative">
-              <button 
-                onClick={() => setShowOrgDropdown(!showOrgDropdown)}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-900 border border-gray-800 rounded-xl hover:border-purple-500/50 transition-all text-xs font-bold uppercase tracking-widest text-gray-400"
-              >
-                <ShieldCheck size={14} className="text-purple-500" />
-                {organization?.name || 'Selecting...'}
-                <ChevronDown size={14} className={`transition-transform ${showOrgDropdown ? 'rotate-180' : ''}`} />
-              </button>
+          {/* Active Plant Switcher (Moved to Left) */}
+          <div className="hidden md:flex items-center gap-2 bg-gray-900 border border-gray-800 rounded-lg px-3 py-1.5 shadow-inner">
+            <Shield size={14} className="text-purple-500" />
+            <select 
+              value={organization?.id || ''} 
+              onChange={(e) => setOrganization(allOrganizations.find((o: any) => o.id === e.target.value))}
+              className="bg-transparent text-[10px] font-black uppercase tracking-widest text-gray-300 outline-none cursor-pointer hover:text-purple-400 transition-colors truncate max-w-[120px]"
+            >
+              {allOrganizations.map((org: any) => <option key={org.id} value={org.id} className="bg-gray-900">{org.name}</option>)}
+            </select>
+          </div>
+          
+          <div className="hidden lg:flex items-center gap-6 text-[10px] font-black uppercase tracking-widest ml-4">
+            <Link href="/" className={`transition-all ${pathname === '/' ? 'text-purple-400 border-b-2 border-purple-500 pb-1' : 'text-gray-400 hover:text-white'}`}>My Keep</Link>
+            <Link href="/inventory" className={`transition-all ${pathname === '/inventory' ? 'text-purple-400 border-b-2 border-purple-500 pb-1' : 'text-gray-400 hover:text-white'}`}>Transactions</Link>
+            <Link href="/shopping-list" className={`transition-all ${pathname === '/shopping-list' ? 'text-yellow-400 border-b-2 border-yellow-500 pb-1' : 'text-gray-400 hover:text-yellow-400'}`}>Shopping List</Link>
+            <Link href="/history" className={`transition-all ${pathname === '/history' ? 'text-purple-400 border-b-2 border-purple-500 pb-1' : 'text-gray-400 hover:text-white'}`}>Ledger</Link>
 
-              {showOrgDropdown && (
-                <div className="absolute top-full mt-2 w-56 bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl p-2 animate-in fade-in zoom-in duration-200">
-                  {allOrganizations.map((org: any) => (
-                    <button
-                      key={org.id}
-                      onClick={() => { setOrganization(org); setShowOrgDropdown(false); }}
-                      className={`w-full text-left px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors ${organization?.id === org.id ? 'bg-purple-600 text-white' : 'hover:bg-gray-800 text-gray-400'}`}
-                    >
-                      {org.name}
-                    </button>
-                  ))}
-                  <div className="h-px bg-gray-800 my-2" />
-                  <Link 
-                    href="/settings" 
-                    onClick={() => setShowOrgDropdown(false)}
-                    className="flex items-center gap-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-white transition-colors"
-                  >
-                    <Plus size={12} /> New Plant
-                  </Link>
-                </div>
-              )}
+            {/* MASTER DATA DROPDOWN */}
+            <div className="relative">
+                <button 
+                  onClick={() => setIsMasterOpen(!isMasterOpen)}
+                  className={`flex items-center gap-1 group focus:outline-none transition-all ${['/materials', '/locations', '/categories', '/units'].includes(pathname) ? 'text-purple-400' : 'text-gray-400 hover:text-white'}`}
+                >
+                  <Database size={14} className="text-gray-500 group-hover:text-purple-400 transition-colors" />
+                  Master Data
+                  <ChevronDown size={10} className={`transition-transform duration-200 ${isMasterOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isMasterOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setIsMasterOpen(false)}></div>
+                    <div className="absolute left-0 mt-6 w-56 bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl z-20 py-3 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                        <Link href="/materials" onClick={() => setIsMasterOpen(false)} className="flex items-center gap-3 px-6 py-3 text-xs font-bold hover:bg-gray-800 hover:text-purple-400 transition-colors text-gray-300">
+                          <Package size={16} className="text-purple-500" /> Goods
+                        </Link>
+                        <Link href="/locations" onClick={() => setIsMasterOpen(false)} className="flex items-center gap-3 px-6 py-3 text-xs font-bold hover:bg-gray-800 hover:text-purple-400 transition-colors text-gray-300">
+                          <MapPin size={16} className="text-blue-500" /> Stores
+                        </Link>
+                        <div className="border-t border-gray-800 my-2"></div>
+                        <Link href="/categories" onClick={() => setIsMasterOpen(false)} className="flex items-center gap-3 px-6 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-gray-800 hover:text-white transition-colors text-gray-500">
+                          <Grid size={12} /> Categories
+                        </Link>
+                        <Link href="/units" onClick={() => setIsMasterOpen(false)} className="flex items-center gap-3 px-6 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-gray-800 hover:text-white transition-colors text-gray-500">
+                          <Scale size={12} /> Units
+                        </Link>
+                    </div>
+                  </>
+                )}
             </div>
           </div>
+        </div>
 
-          {/* MIDDLE: NAV LINKS (DESKTOP) */}
-          <div className="hidden lg:flex items-center gap-1">
-            {navItems.map((item) => {
-              const Icon = item.icon
-              const isActive = pathname === item.href
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${isActive ? 'text-purple-500 bg-purple-500/5' : 'text-gray-500 hover:text-white hover:bg-gray-900'}`}
-                >
-                  <Icon size={16} />
-                  {item.name}
-                </Link>
-              )
-            })}
-          </div>
-
-          {/* RIGHT: SETTINGS & MOBILE TOGGLE */}
-          <div className="flex items-center gap-2">
-            <Link 
-              href="/settings"
-              className={`hidden md:flex p-3 rounded-xl transition-all ${pathname === '/settings' ? 'bg-purple-600 text-white' : 'bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-800'}`}
-            >
-              <Settings size={20} />
-            </Link>
-            
+        {/* RIGHT: SETTINGS & PROFILE */}
+        <div className="flex items-center gap-4">
+          <div className="relative">
             <button 
-              onClick={() => setIsOpen(!isOpen)}
-              className="lg:hidden p-3 bg-gray-900 rounded-xl text-white border border-gray-800"
+              onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+              className="p-2.5 bg-gray-900 rounded-xl hover:bg-gray-800 transition-all flex items-center justify-center group border border-gray-800 hover:border-purple-500/50"
             >
-              {isOpen ? <X size={24} /> : <Menu size={24} />}
+              <Settings size={18} className={`text-gray-400 group-hover:text-white ${isSettingsOpen ? 'rotate-90 text-white' : ''} transition-all duration-300`} />
             </button>
+
+            {isSettingsOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setIsSettingsOpen(false)}></div>
+                <div className="absolute right-0 mt-4 w-64 bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl z-20 py-2 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="px-5 py-3 border-b border-gray-800 mb-2 bg-[#0a0a0a]">
+                        <p className="text-[9px] font-black text-purple-500 uppercase tracking-widest">Keep Configuration</p>
+                    </div>
+                    
+                    <Link href="/settings" onClick={() => setIsSettingsOpen(false)} className="flex items-center gap-4 px-5 py-3 hover:bg-gray-800 text-sm font-bold transition-colors group">
+                        <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center group-hover:bg-purple-500/20 transition-colors">
+                          <Settings size={16} className="text-purple-500" />
+                        </div>
+                        <div>
+                            <span className="block text-gray-200">System Settings</span>
+                            <span className="text-[9px] text-gray-500 font-normal uppercase tracking-wide">Manage Access & Profile</span>
+                        </div>
+                    </Link>
+
+                    <div className="border-t border-gray-800 my-2"></div>
+                    
+                    <button onClick={() => { setIsSettingsOpen(false); handleLogout(); }} className="w-full flex items-center gap-3 px-6 py-3 hover:bg-red-500/10 text-sm font-bold transition-colors text-red-500 group">
+                        <LogOut size={16} className="group-hover:-translate-x-1 transition-transform" />
+                        <span className="block">Secure Log Out</span>
+                    </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
-
-      {/* MOBILE MENU */}
-      {isOpen && (
-        <div className="lg:hidden bg-black border-t border-gray-800 p-4 space-y-2 animate-in slide-in-from-top duration-300">
-          {/* Mobile Org Switcher */}
-          <div className="mb-6 p-4 bg-gray-900 rounded-2xl border border-gray-800">
-            <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-3">Active Workspace</p>
-            <div className="flex flex-wrap gap-2">
-              {allOrganizations.map((org: any) => (
-                <button
-                  key={org.id}
-                  onClick={() => setOrganization(org)}
-                  className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${organization?.id === org.id ? 'bg-purple-600 text-white' : 'bg-black text-gray-500 border border-gray-800'}`}
-                >
-                  {org.name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {navItems.map((item) => {
-            const Icon = item.icon
-            const isActive = pathname === item.href
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                onClick={() => setIsOpen(false)}
-                className={`flex items-center gap-4 p-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${isActive ? 'bg-purple-600 text-white shadow-lg shadow-purple-900/40' : 'bg-gray-900 text-gray-400'}`}
-              >
-                <Icon size={18} />
-                {item.name}
-              </Link>
-            )
-          })}
-          <Link
-            href="/settings"
-            onClick={() => setIsOpen(false)}
-            className="flex items-center gap-4 p-4 rounded-2xl text-xs font-black uppercase tracking-widest bg-gray-900 text-gray-400 border border-gray-800"
-          >
-            <Settings size={18} />
-            Settings
-          </Link>
-        </div>
-      )}
     </nav>
   )
 }
