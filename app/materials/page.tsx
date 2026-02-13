@@ -1,109 +1,156 @@
 'use client'
-import { createClient } from '@supabase/supabase-js'
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
+import { createClient } from '@supabase/supabase-js'
+import { useRouter } from 'next/navigation'
 import { useOrganization } from '../context/OrganizationContext'
+import { Package, Plus, Search, Edit2, Shield } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
-export default function MaterialsMasterPage() {
+export default function GoodsPage() {
+  const router = useRouter()
   const { organization } = useOrganization()
-  const [items, setItems] = useState<any[]>([])
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState({ name: '', active: true })
-  const [historyCheck, setHistoryCheck] = useState<Record<string, number>>({})
+  
+  const [goods, setGoods] = useState<any[]>([])
+  const [locations, setLocations] = useState<any[]>([])
+  const [searchTerm, setSearchTerm] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (organization) fetchData()
+  }, [organization])
 
   const fetchData = async () => {
-    if (!organization) return 
-    const { data: mats } = await supabase.from('materials').select('*, categories(name), locations(name)').eq('organization_id', organization.id).order('name')
-    const { data: moves } = await supabase.from('inventory_movements').select('material_id')
+    setLoading(true)
     
-    // Count history occurrences for delete logic
-    const counts = (moves || []).reduce((acc: any, cur: any) => {
-        acc[cur.material_id] = (acc[cur.material_id] || 0) + 1
-        return acc
-    }, {})
+    // Fetch both the stock view and locations to map names properly
+    const [stockRes, locRes] = await Promise.all([
+      supabase.from('view_current_stock').select('*').eq('organization_id', organization.id).order('name'),
+      supabase.from('locations').select('id, name').eq('organization_id', organization.id)
+    ])
 
-    if (mats) setItems(mats)
-    setHistoryCheck(counts)
+    if (stockRes.data) setGoods(stockRes.data)
+    if (locRes.data) setLocations(locRes.data)
+      
+    setLoading(false)
   }
 
-  useEffect(() => { fetchData() }, [organization])
-
-  const saveQuickEdit = async (id: string) => {
-    await supabase.from('materials').update({ name: editForm.name, active: editForm.active }).eq('id', id)
-    setEditingId(null)
-    fetchData()
+  // Helper to get location name
+  const getLocationName = (locId: string) => {
+    if (!locId) return <span className="text-gray-600 italic">Unassigned</span>
+    const loc = locations.find(l => l.id === locId)
+    return loc ? loc.name : 'Unknown'
   }
 
-  const handleDelete = async (id: string) => {
-    if (confirm("Delete this material?")) {
-        await supabase.from('materials').delete().eq('id', id)
-        fetchData()
-    }
+  const filteredGoods = goods.filter(g => g.name.toLowerCase().includes(searchTerm.toLowerCase()))
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-purple-500">
+        <div className="animate-pulse flex flex-col items-center gap-4">
+          <Shield size={40} />
+          <p className="text-xs font-black uppercase tracking-widest text-gray-500">Loading Records...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="min-h-screen p-8 text-white font-sans">
-      <div className="flex justify-between items-center mb-10">
-        <h1 className="text-4xl font-black uppercase tracking-tighter">Materials Master</h1>
-        <Link href="/new-material" className="bg-purple-600 px-6 py-2 rounded-xl font-bold hover:bg-purple-500">+ Add New</Link>
-      </div>
+    <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans">
+      <div className="max-w-7xl mx-auto space-y-8">
+        
+        {/* HEADER */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-800 pb-6">
+          <div>
+            <h1 className="text-4xl font-black uppercase tracking-tighter italic text-gray-100 mb-1">The Goods</h1>
+            <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">
+              <Package size={12} className="text-purple-500" /> Master Data Registry
+            </p>
+          </div>
+          <button 
+            onClick={() => router.push('/materials/new')} 
+            className="bg-purple-600 hover:bg-purple-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20"
+          >
+            <Plus size={16} /> Add Good
+          </button>
+        </div>
 
-      <div className="bg-gray-900 rounded-3xl border border-gray-800 overflow-x-auto shadow-2xl">
-        <table className="w-full text-left text-sm min-w-[800px]">
-          <thead className="bg-black text-gray-500 text-[10px] font-black uppercase tracking-widest border-b border-gray-800">
-            <tr>
-              <th className="p-6">Material</th>
-              <th className="p-6">Category</th>
-              <th className="p-6">Description</th>
-              <th className="p-6">Def. Location</th>
-              <th className="p-6">Unit</th>
-              <th className="p-6 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-800">
-            {items.map((item) => {
-              const hasHistory = historyCheck[item.id] > 0;
-              return (
-                <tr key={item.id} className="hover:bg-gray-800/30">
-                  <td className="p-6">
-                    {editingId === item.id ? (
-                      <input className="bg-black border border-purple-500 p-2 rounded-xl w-full text-purple-400 outline-none" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} />
-                    ) : (
-                      <Link href={`/materials/${item.id}`} className="font-black hover:text-purple-400">{item.name}</Link>
-                    )}
-                  </td>
-                  <td className="p-6">
-                    <span className="bg-purple-900/20 text-purple-400 px-2 py-1 rounded-full text-[10px] font-black uppercase border border-purple-800 tracking-widest">
-                        {item.categories?.name || 'General'}
-                    </span>
-                  </td>
-                  <td className="p-6 text-gray-500 text-xs italic truncate max-w-[150px]">{item.description || '-'}</td>
-                  <td className="p-6 text-xs font-bold text-gray-400 uppercase">{item.locations?.name || 'Not Set'}</td>
-                  <td className="p-6 font-mono text-xs">{item.unit}</td>
-                  <td className="p-6 text-right">
-                    {editingId === item.id ? (
-                      <div className="flex flex-col items-end gap-2 text-[9px] font-black uppercase">
-                        <div className="flex gap-3">
-                            <button onClick={() => saveQuickEdit(item.id)} className="text-green-400">Save</button>
-                            <button onClick={() => setEditingId(null)} className="text-gray-500">Cancel</button>
-                            {!hasHistory && <button onClick={() => handleDelete(item.id)} className="text-red-700">Delete</button>}
-                        </div>
-                        <button onClick={() => setEditForm({...editForm, active: !editForm.active})} className={editForm.active ? 'text-green-500' : 'text-red-500'}>
-                            {editForm.active ? '● Active' : '○ Inactive'}
-                        </button>
-                        {hasHistory && <span className="text-[8px] text-gray-600 lowercase tracking-normal">Locked: Item has history</span>}
-                      </div>
-                    ) : (
-                      <button onClick={() => { setEditingId(item.id); setEditForm({ name: item.name, active: item.active }); }} className="text-gray-500 hover:text-white font-black uppercase text-[10px]">Edit</button>
-                    )}
-                  </td>
+        {/* SEARCH BAR */}
+        <div className="relative group">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-purple-400 transition-colors" size={18} />
+          <input 
+            placeholder="Search master data by name..." 
+            className="w-full bg-gray-900 border border-gray-800 p-4 pl-12 rounded-xl outline-none focus:border-purple-500 transition-all font-bold text-sm text-gray-200"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        {/* DATA TABLE */}
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden shadow-2xl">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-black/50 border-b border-gray-800">
+                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500">Item Name</th>
+                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 hidden sm:table-cell">Category</th>
+                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 hidden md:table-cell">Default Store</th>
+                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 text-center">MRP</th>
+                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 text-right">In Stock</th>
+                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 text-center">Action</th>
                 </tr>
-              )
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {filteredGoods.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-sm font-bold text-gray-500">
+                      No records found.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredGoods.map((item) => (
+                    <tr key={item.material_id} className="hover:bg-gray-800/50 transition-colors group">
+                      <td className="p-4">
+                        <p className="font-bold text-sm text-gray-200">{item.name}</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-600 sm:hidden mt-1">{item.category}</p>
+                      </td>
+                      <td className="p-4 hidden sm:table-cell">
+                        <span className="text-xs font-bold text-gray-400 bg-black border border-gray-800 px-2 py-1 rounded-md">
+                          {item.category || 'None'}
+                        </span>
+                      </td>
+                      <td className="p-4 hidden md:table-cell text-xs font-bold text-gray-400">
+                        {getLocationName(item.default_location_id)}
+                      </td>
+                      <td className="p-4 text-center">
+                        <span className="text-xs font-black text-yellow-500">
+                          {item.reorder_point > 0 ? item.reorder_point : '-'}
+                        </span>
+                      </td>
+                      <td className="p-4 text-right">
+                        <p className="text-lg font-black tracking-tighter text-purple-400">
+                          {item.current_stock || 0}
+                        </p>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-gray-600">
+                          {item.unit}
+                        </p>
+                      </td>
+                      <td className="p-4 text-center">
+                        <button 
+                          onClick={() => router.push(`/materials/${item.material_id}`)}
+                          className="p-2 bg-gray-950 border border-gray-800 rounded-lg text-gray-400 hover:text-purple-400 hover:border-purple-500 transition-all inline-flex"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
       </div>
     </div>
   )
