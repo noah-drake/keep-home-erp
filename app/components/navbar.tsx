@@ -1,13 +1,23 @@
 'use client'
 import Link from 'next/link'
 import { useState } from 'react'
-import { Settings, User, Factory, ChevronDown, Database, Menu } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Settings, User, Factory, ChevronDown, Database, LogOut } from 'lucide-react'
 import { useOrganization } from '../context/OrganizationContext'
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
 export default function Navbar() {
+  const router = useRouter()
   const { organization, allOrganizations, setOrganization } = useOrganization()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isMasterOpen, setIsMasterOpen] = useState(false)
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   return (
     <nav className="bg-gray-950 border-b border-gray-800 p-4 sticky top-0 z-50">
@@ -18,17 +28,19 @@ export default function Navbar() {
           <Link href="/" className="font-black text-2xl tracking-tighter text-purple-500">HOME ERP</Link>
           
           <div className="hidden md:flex items-center gap-6 text-[10px] font-black uppercase tracking-widest">
-            <Link href="/" className="hover:text-purple-400">Dashboard</Link>
-            <Link href="/inventory" className="hover:text-purple-400">Transactions</Link>
-            <Link href="/shopping-list" className="hover:text-yellow-400 text-yellow-500">🛒 Shopping List</Link>
-            
-            {/* MASTER DATA DROPDOWN - RESTORED */}
+            <Link href="/" className="hover:text-purple-400 transition-colors">Dashboard</Link>
+            <Link href="/inventory" className="hover:text-purple-400 transition-colors">Transactions</Link>
+            <Link href="/shopping-list" className="hover:text-yellow-400 text-yellow-500 transition-colors">🛒 Shopping List</Link>
+            <Link href="/history" className="hover:text-yellow-400 text-yellow-500 transition-colors">History</Link>
+
+
+            {/* MASTER DATA DROPDOWN */}
             <div className="relative">
                 <button 
                   onClick={() => setIsMasterOpen(!isMasterOpen)}
-                  className="flex items-center gap-1 hover:text-purple-400 group focus:outline-none"
+                  className="flex items-center gap-1 hover:text-purple-400 group focus:outline-none transition-colors"
                 >
-                  <Database size={14} className="text-gray-500 group-hover:text-purple-400" />
+                  <Database size={14} className="text-gray-500 group-hover:text-purple-400 transition-colors" />
                   Master Data
                   <ChevronDown size={10} />
                 </button>
@@ -55,9 +67,9 @@ export default function Navbar() {
           <div className="flex flex-col items-end">
              <span className="text-[8px] font-black text-gray-600 uppercase tracking-widest mb-1">Active Plant</span>
              <select 
-                value={organization?.id} 
+                value={organization?.id || ''} 
                 onChange={(e) => setOrganization(allOrganizations.find((o: any) => o.id === e.target.value))}
-                className="bg-gray-900 border border-gray-700 text-[10px] font-black rounded-lg px-2 py-1 outline-none text-green-400 uppercase tracking-widest cursor-pointer hover:border-green-500 transition-colors"
+                className="bg-gray-900 border border-gray-700 text-[10px] font-black rounded-lg px-2 py-1 outline-none text-green-400 uppercase tracking-widest cursor-pointer hover:border-green-500 transition-colors max-w-[150px] truncate"
              >
                 {allOrganizations.map((org: any) => <option key={org.id} value={org.id}>{org.name}</option>)}
              </select>
@@ -95,6 +107,14 @@ export default function Navbar() {
                             <span className="text-[9px] text-gray-500 font-normal uppercase tracking-wide">Get My User UUID</span>
                         </div>
                     </Link>
+
+                    <div className="border-t border-gray-800 my-2"></div>
+                    
+                    {/* SECURE LOG OUT */}
+                    <button onClick={() => { setIsSettingsOpen(false); handleLogout(); }} className="w-full flex items-center gap-3 px-6 py-3 hover:bg-red-500/10 text-sm font-bold transition-colors text-red-500 group">
+                        <LogOut size={16} className="group-hover:-translate-x-1 transition-transform" />
+                        <span className="block">Secure Log Out</span>
+                    </button>
                 </div>
               </>
             )}
