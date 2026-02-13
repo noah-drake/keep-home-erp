@@ -72,12 +72,12 @@ export default function GoodsPage() {
       return
     }
 
-    const { error } = await supabase.from('materials').update({ is_active: !currentState }).eq('id', id)
+    const { error } = await supabase.from('materials').update({ active: !currentState }).eq('id', id)
     if (error) {
       alert(error.message)
     } else {
       // Update local state to reflect the change instantly
-      setGoods(goods.map(g => g.material_id === id ? { ...g, is_active: !currentState } : g))
+      setGoods(goods.map(g => g.material_id === id ? { ...g, active: !currentState } : g))
     }
   }
 
