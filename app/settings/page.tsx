@@ -33,16 +33,26 @@ export default function SettingsPage() {
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUserId(user?.id || null)
 
-      // Fetch the VIP list and join it with the new "profiles" window we made in SQL
-      const { data } = await supabase.from('organization_members')
-        .select(`
-            user_id,
-            role,
-            profiles:user_id (email, full_name)
-        `)
-        .eq('organization_id', organization.id)
+      // Use our new secure database pipeline!
+      const { data, error } = await supabase.rpc('get_team_roster', { org_id: organization.id })
       
-      if (data) setMembers(data)
+      if (error) {
+          console.error("Error fetching team:", error)
+          return
+      }
+
+      if (data) {
+          // Map the data so it matches the UI code perfectly
+          const mappedMembers = data.map((m: any) => ({
+              user_id: m.user_id,
+              role: m.role,
+              profiles: {
+                  email: m.email,
+                  full_name: m.full_name
+              }
+          }))
+          setMembers(mappedMembers)
+      }
   }
 
   // 1. Rename Plant
