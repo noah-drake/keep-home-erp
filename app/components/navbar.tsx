@@ -8,16 +8,14 @@ import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
-// Custom SVG Logo for 'Keep' - High-end SaaS geometric fortress mark
+// Custom SVG Logo for 'Keep' - Borderless Castle Mark
 const KeepLogo = () => (
   <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-lg group-hover:scale-105 transition-transform">
-    <rect width="32" height="32" rx="8" fill="url(#keep_gradient)" />
-    {/* Castle/Keep Silhouette */}
-    <path d="M8 22V11H11V8H14V11H18V8H21V11H24V22H18V16.5C18 15.6716 17.3284 15 16.5 15H15.5C14.6716 15 14 15.6716 14 16.5V22H8Z" fill="white" />
+    <path d="M6 26V11H10V7H14V11H18V7H22V11H26V26H19V18.5C19 17.1193 17.8807 16 16.5 16H15.5C14.1193 16 13 17.1193 13 18.5V26H6Z" fill="url(#keep_gradient)" />
     <defs>
-      <linearGradient id="keep_gradient" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-        <stop stopColor="#9333EA" /> {/* purple-600 */}
-        <stop offset="1" stopColor="#4C1D95" /> {/* purple-900 */}
+      <linearGradient id="keep_gradient" x1="6" y1="7" x2="26" y2="26" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#A855F7" /> {/* purple-500 */}
+        <stop offset="1" stopColor="#6D28D9" /> {/* purple-700 */}
       </linearGradient>
     </defs>
   </svg>
