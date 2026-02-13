@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { Settings, User, Factory, ChevronDown, Database, LogOut } from 'lucide-react'
 import { useOrganization } from '../context/OrganizationContext'
 import { createClient } from '@supabase/supabase-js'
@@ -10,6 +10,7 @@ const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env
 
 export default function Navbar() {
   const router = useRouter()
+  const pathname = usePathname()
   const { organization, allOrganizations, setOrganization } = useOrganization()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isMasterOpen, setIsMasterOpen] = useState(false)
@@ -18,6 +19,7 @@ export default function Navbar() {
     await supabase.auth.signOut()
     router.push('/login')
   }
+  if (pathname === '/login') return null
 
   return (
     <nav className="bg-gray-950 border-b border-gray-800 p-4 sticky top-0 z-50">
