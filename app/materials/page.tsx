@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
 import { useOrganization } from '../context/OrganizationContext'
-import { Package, Plus, Search, Edit2, Shield } from 'lucide-react'
+import { Package, Plus, Search, MoreVertical, Edit2, Trash2, Ban, ArrowLeftRight, ClipboardList, Shield } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
@@ -17,49 +17,52 @@ export default function GoodsPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      const [stockRes, locRes] = await Promise.all([
+        supabase.from('view_current_stock').select('*').eq('organization_id', organization.id).order('name'),
+        supabase.from('locations').select('id, name').eq('organization_id', organization.id)
+      ])
+
+      if (stockRes.data) setGoods(stockRes.data)
+      if (locRes.data) setLocations(locRes.data)
+      setLoading(false)
+    }
+
     if (organization) fetchData()
   }, [organization])
 
-  const fetchData = async () => {
-    setLoading(true)
-    
-    // Fetch both the stock view and locations to map names properly
-    const [stockRes, locRes] = await Promise.all([
-      supabase.from('view_current_stock').select('*').eq('organization_id', organization.id).order('name'),
-      supabase.from('locations').select('id, name').eq('organization_id', organization.id)
-    ])
-
-    if (stockRes.data) setGoods(stockRes.data)
-    if (locRes.data) setLocations(locRes.data)
-      
-    setLoading(false)
-  }
-
-  // Helper to get location name
   const getLocationName = (locId: string) => {
     if (!locId) return <span className="text-gray-600 italic">Unassigned</span>
     const loc = locations.find(l => l.id === locId)
     return loc ? loc.name : 'Unknown'
   }
 
+  const handleDelete = async (e: React.MouseEvent, id: string, name: string) => {
+    e.stopPropagation()
+    if (!confirm(`DANGER: Are you sure you want to delete ${name}?`)) return
+    const { error } = await supabase.from('materials').delete().eq('id', id)
+    if (error) alert(error.message)
+    else setGoods(goods.filter(g => g.material_id !== id))
+  }
+
+  const handleToggleActive = async (e: React.MouseEvent, id: string, currentState: boolean) => {
+    e.stopPropagation()
+    // Note: This requires an 'is_active' boolean column on your materials table
+    const { error } = await supabase.from('materials').update({ is_active: !currentState }).eq('id', id)
+    if (error) alert(error.message)
+    else alert(`Item flagged as ${!currentState ? 'Active' : 'Inactive'}.`)
+  }
+
   const filteredGoods = goods.filter(g => g.name.toLowerCase().includes(searchTerm.toLowerCase()))
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-purple-500">
-        <div className="animate-pulse flex flex-col items-center gap-4">
-          <Shield size={40} />
-          <p className="text-xs font-black uppercase tracking-widest text-gray-500">Loading Records...</p>
-        </div>
-      </div>
-    )
-  }
+  if (loading) return null // Or your loading state
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans">
       <div className="max-w-7xl mx-auto space-y-8">
         
-        {/* HEADER */}
+        {/* HEADER & SEARCH BAR... (Same as before) */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-800 pb-6">
           <div>
             <h1 className="text-4xl font-black uppercase tracking-tighter italic text-gray-100 mb-1">The Goods</h1>
@@ -67,15 +70,11 @@ export default function GoodsPage() {
               <Package size={12} className="text-purple-500" /> Master Data Registry
             </p>
           </div>
-          <button 
-            onClick={() => router.push('/materials/new')} 
-            className="bg-purple-600 hover:bg-purple-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20"
-          >
+          <button onClick={() => router.push('/materials/new')} className="bg-purple-600 hover:bg-purple-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20">
             <Plus size={16} /> Add Good
           </button>
         </div>
 
-        {/* SEARCH BAR */}
         <div className="relative group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-purple-400 transition-colors" size={18} />
           <input 
@@ -87,7 +86,7 @@ export default function GoodsPage() {
         </div>
 
         {/* DATA TABLE */}
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden shadow-2xl">
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden shadow-2xl pb-24">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -97,61 +96,94 @@ export default function GoodsPage() {
                   <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 hidden md:table-cell">Default Store</th>
                   <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 text-center">MRP</th>
                   <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 text-right">In Stock</th>
-                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 text-center">Action</th>
+                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 text-center w-16">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {filteredGoods.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="p-8 text-center text-sm font-bold text-gray-500">
-                      No records found.
+                {filteredGoods.map((item) => (
+                  <tr 
+                    key={item.material_id} 
+                    onClick={() => router.push(`/materials/${item.material_id}`)}
+                    className="hover:bg-gray-800/50 transition-colors group cursor-pointer"
+                  >
+                    <td className="p-4">
+                      <p className="font-bold text-sm text-gray-200 group-hover:text-purple-400 transition-colors">{item.name}</p>
+                    </td>
+                    <td className="p-4 hidden sm:table-cell">
+                      <span className="text-xs font-bold text-gray-400 bg-black border border-gray-800 px-2 py-1 rounded-md">{item.category || 'None'}</span>
+                    </td>
+                    <td className="p-4 hidden md:table-cell text-xs font-bold text-gray-400">
+                      {getLocationName(item.default_location_id)}
+                    </td>
+                    <td className="p-4 text-center">
+                      <span className="text-xs font-black text-yellow-500">{item.reorder_point > 0 ? item.reorder_point : '-'}</span>
+                    </td>
+                    <td className="p-4 text-right">
+                      <p className="text-lg font-black tracking-tighter text-purple-400">{item.current_stock || 0}</p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-gray-600">{item.unit}</p>
+                    </td>
+                    <td className="p-4 text-center relative" onClick={e => e.stopPropagation()}>
+                       <ActionDropdown 
+                        item={item} 
+                        router={router} 
+                        onDelete={(e: React.MouseEvent) => handleDelete(e, item.material_id, item.name)} 
+                        onToggleActive={(e: React.MouseEvent) => handleToggleActive(e, item.material_id, item.is_active)}
+                      />
                     </td>
                   </tr>
-                ) : (
-                  filteredGoods.map((item) => (
-                    <tr key={item.material_id} className="hover:bg-gray-800/50 transition-colors group">
-                      <td className="p-4">
-                        <p className="font-bold text-sm text-gray-200">{item.name}</p>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-600 sm:hidden mt-1">{item.category}</p>
-                      </td>
-                      <td className="p-4 hidden sm:table-cell">
-                        <span className="text-xs font-bold text-gray-400 bg-black border border-gray-800 px-2 py-1 rounded-md">
-                          {item.category || 'None'}
-                        </span>
-                      </td>
-                      <td className="p-4 hidden md:table-cell text-xs font-bold text-gray-400">
-                        {getLocationName(item.default_location_id)}
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className="text-xs font-black text-yellow-500">
-                          {item.reorder_point > 0 ? item.reorder_point : '-'}
-                        </span>
-                      </td>
-                      <td className="p-4 text-right">
-                        <p className="text-lg font-black tracking-tighter text-purple-400">
-                          {item.current_stock || 0}
-                        </p>
-                        <p className="text-[9px] font-black uppercase tracking-widest text-gray-600">
-                          {item.unit}
-                        </p>
-                      </td>
-                      <td className="p-4 text-center">
-                        <button 
-                          onClick={() => router.push(`/materials/${item.material_id}`)}
-                          className="p-2 bg-gray-950 border border-gray-800 rounded-lg text-gray-400 hover:text-purple-400 hover:border-purple-500 transition-all inline-flex"
-                        >
-                          <Edit2 size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
+                ))}
               </tbody>
             </table>
           </div>
         </div>
 
       </div>
+    </div>
+  )
+}
+
+// Action Dropdown Component
+function ActionDropdown({ item, router, onDelete, onToggleActive }: any) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <div className="relative inline-block text-left">
+      <button 
+        onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen) }}
+        className="p-2 text-gray-500 hover:text-white rounded-lg hover:bg-gray-800 transition-colors"
+      >
+        <MoreVertical size={16} />
+      </button>
+
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setIsOpen(false) }}></div>
+          <div className="absolute right-0 mt-2 w-48 bg-[#0f0f0f] border border-gray-800 rounded-2xl shadow-2xl z-20 py-2 overflow-hidden animate-in fade-in slide-in-from-top-2">
+            
+            <button onClick={(e) => { e.stopPropagation(); router.push(`/materials/${item.material_id}?edit=true`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3">
+              <Edit2 size={14} className="text-blue-500" /> Edit Master Data
+            </button>
+            
+            <button onClick={(e) => { e.stopPropagation(); router.push(`/inventory/new?material_id=${item.material_id}`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3">
+              <ArrowLeftRight size={14} className="text-purple-500" /> Transact
+            </button>
+            
+            <button onClick={(e) => { e.stopPropagation(); alert('Count Tool Coming Soon') }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3">
+              <ClipboardList size={14} className="text-yellow-500" /> Count Stock
+            </button>
+            
+            <div className="border-t border-gray-800 my-1"></div>
+            
+            <button onClick={(e) => { setIsOpen(false); onToggleActive(e) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-400 flex items-center gap-3">
+              <Ban size={14} /> Flag Inactive
+            </button>
+            
+            <button onClick={(e) => { setIsOpen(false); onDelete(e) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-red-950/50 hover:text-red-400 transition-colors text-red-500 flex items-center gap-3">
+              <Trash2 size={14} /> Delete
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }
