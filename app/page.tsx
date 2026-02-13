@@ -31,23 +31,28 @@ export default function Dashboard() {
     async function init() {
       if (!organization) return
       
+      const forceWizard = localStorage.getItem('force_wizard') === 'true'
+      
       const { count } = await supabase.from('locations').select('*', { count: 'exact', head: true }).eq('organization_id', organization.id)
       
-      if (count && count > 0) {
+      if (count && count > 0 && !forceWizard) {
           setHasData(true)
           fetchDashboardStats()
       } else {
           setHasData(false)
-          setStep(1) // Start Wizard
+          setStep(1)
           
           const { data: locs } = await supabase.from('global_locations').select('*')
           const { data: prods } = await supabase.from('global_products').select('*')
           if (locs) setGlobalLocs(locs)
           if (prods) setGlobalProducts(prods)
+          
+          // Clear the flag so it doesn't loop
+          localStorage.removeItem('force_wizard')
       }
     }
     init()
-  }, [organization])
+}, [organization])
 
   const fetchDashboardStats = async () => {
       // Get Total Items
