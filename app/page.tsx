@@ -2,307 +2,149 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useOrganization } from './context/OrganizationContext'
-import { useRouter } from 'next/navigation'
-import { Castle, Zap, Plus, ArrowRight, Check, Package, MapPin, BarChart, AlertTriangle } from 'lucide-react'
+import { MapPin, Package, AlertCircle, Shield } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
-export default function Dashboard() {
-  const router = useRouter()
+export default function DashboardPage() {
   const { organization } = useOrganization()
-  
-  const [hasData, setHasData] = useState<boolean | null>(null)
-  const [step, setStep] = useState(0)
-  const [loading, setLoading] = useState(false)
-
-  // Global Data
-  const [globalLocs, setGlobalLocs] = useState<any[]>([])
-  const [globalProducts, setGlobalProducts] = useState<any[]>([])
-
-  // User Selections
-  const [selectedLocs, setSelectedLocs] = useState<string[]>([])
-  const [selectedProducts, setSelectedProducts] = useState<any[]>([])
-  const [productConfigs, setProductConfigs] = useState<Record<string, any>>({})
-
-  // Dashboard Stats
-  const [stats, setStats] = useState({ totalItems: 0, lowStock: 0 })
+  const [locations, setLocations] = useState<any[]>([])
+  const [stock, setStock] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    async function init() {
-      if (!organization) return
-      
-      const forceWizard = localStorage.getItem('force_wizard') === 'true'
-      
-      const { count } = await supabase.from('locations').select('*', { count: 'exact', head: true }).eq('organization_id', organization.id)
-      
-      if (count && count > 0 && !forceWizard) {
-          setHasData(true)
-          fetchDashboardStats()
-      } else {
-          setHasData(false)
-          setStep(1)
-          
-          const { data: locs } = await supabase.from('global_locations').select('*')
-          const { data: prods } = await supabase.from('global_products').select('*')
-          if (locs) setGlobalLocs(locs)
-          if (prods) setGlobalProducts(prods)
-          
-          // Clear the flag so it doesn't loop
-          localStorage.removeItem('force_wizard')
-      }
-    }
-    init()
-}, [organization])
+    if (organization) fetchData()
+  }, [organization])
 
-  const fetchDashboardStats = async () => {
-      // Get Total Items
-      const { count: total } = await supabase.from('materials').select('*', { count: 'exact', head: true }).eq('organization_id', organization.id)
+  const fetchData = async () => {
+    setLoading(true)
+    
+    // 1. Fetch all locations for this plant
+    const { data: locData } = await supabase.from('locations')
+      .select('*')
+      .eq('organization_id', organization.id)
+      .order('name')
       
-      // Look at your highly advanced view to calculate low stock!
-      const { data: allItems } = await supabase.from('view_current_stock')
-          .select('*')
-          .eq('organization_id', organization.id)
-          .eq('active', true)
-      
-      // Calculate how many items have dropped below their reorder point
-      const lowCount = allItems?.filter(item => 
-          item.reorder_point !== null && 
-          item.current_stock <= item.reorder_point
-      ).length || 0
+    // 2. Fetch current stock levels
+    const { data: stockData } = await supabase.from('view_current_stock')
+      .select('*')
+      .eq('organization_id', organization.id)
+      .gt('current_stock', 0) // Only show items actually in stock
+      .order('name')
 
-      setStats({ totalItems: total || 0, lowStock: lowCount })
+    if (locData) setLocations(locData)
+    if (stockData) setStock(stockData)
+    
+    setLoading(false)
   }
 
-  const toggleLoc = (name: string) => setSelectedLocs(prev => prev.includes(name) ? prev.filter(l => l !== name) : [...prev, name])
-  const toggleProduct = (prod: any) => setSelectedProducts(prev => prev.find(p => p.id === prod.id) ? prev.filter(p => p.id !== prod.id) : [...prev, prod])
+  // Group stock by location
+  const groupedData = locations.map(loc => ({
+    ...loc,
+    items: stock.filter(item => item.default_location_id === loc.id)
+  })).filter(loc => loc.items.length > 0) // Hide empty locations
 
-  const updateConfig = (prodId: string, field: string, value: any) => {
-      setProductConfigs(prev => ({
-          ...prev,
-          [prodId]: { ...prev[prodId], [field]: value }
-      }))
-  }
+  // Find items that have stock but no assigned location
+  const unassignedItems = stock.filter(item => !item.default_location_id)
 
-  // --- THE PERFECTLY MAPPED BULK INSERT ---
-  const handleFinalizeSetup = async () => {
-      setLoading(true)
-      try {
-          // 1. Clone Locations
-          const { data: newLocs, error: locError } = await supabase.from('locations')
-              .insert(selectedLocs.map(name => ({ name, organization_id: organization.id })))
-              .select()
-          if (locError) throw new Error("Locations Error: " + locError.message)
-
-          // 2. Clone Categories (Your Categories use integer IDs)
-          const categoriesToClone = Array.from(new Set(selectedProducts.map(p => p.category_name).filter(Boolean)))
-          const unitsToClone = Array.from(new Set(selectedProducts.map(p => p.unit_name).filter(Boolean)))
-          
-          let localCats: any[] = []
-
-          if (categoriesToClone.length > 0) {
-              const { data, error: catError } = await supabase.from('categories')
-                  .insert(categoriesToClone.map(name => ({ name, organization_id: organization.id })))
-                  .select()
-              if (catError) throw new Error("Categories Error: " + catError.message)
-              if (data) localCats = data
-          }
-          
-          // 3. Clone Units into your local units table
-          if (unitsToClone.length > 0) {
-              const { error: unitError } = await supabase.from('units')
-                  .insert(unitsToClone.map(name => ({ name, organization_id: organization.id })))
-              if (unitError) throw new Error("Units Error: " + unitError.message)
-          }
-
-          // 4. Insert the Materials exactly matching your schema
-          const materialsToInsert = selectedProducts.map(prod => {
-              const config = productConfigs[prod.id] || {}
-              const catId = localCats.find(c => c.name === prod.category_name)?.id
-              const locId = newLocs?.find(l => l.name === config.locationName)?.id
-
-              return {
-                  organization_id: organization.id,
-                  name: prod.name,
-                  category_id: catId || null,
-                  unit: prod.unit_name || null, // Your material schema uses text for units!
-                  default_location_id: locId || null,
-                  is_mrp_enabled: config.is_mrp_enabled || false,
-                  reorder_point: config.is_mrp_enabled ? (config.min_stock || 0) : null,
-                  lot_quantity: config.is_mrp_enabled ? (config.reorder_qty || 0) : null,
-                  active: true
-              }
-          })
-
-          if (materialsToInsert.length > 0) {
-              const { error: matError } = await supabase.from('materials').insert(materialsToInsert)
-              if (matError) throw new Error("Materials Error: " + matError.message)
-          }
-
-          setHasData(true)
-          fetchDashboardStats()
-      } catch (err: any) {
-          console.error(err)
-          alert("Setup Failed: " + err.message)
-      } finally {
-          setLoading(false)
-      }
-  }
-
-  if (hasData === null) return null 
-
-  if (!hasData) {
+  if (loading) {
     return (
-      <div className="min-h-[80vh] flex flex-col items-center justify-center p-4 text-white font-sans">
-        <div className="max-w-2xl w-full bg-gray-900 p-8 md:p-12 rounded-[2.5rem] border border-gray-800 shadow-2xl">
-            
-            {/* STEP 1: LOCATIONS */}
-            {step === 1 && (
-                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <MapPin size={40} className="text-purple-500 mb-6" />
-                    <h1 className="text-3xl font-black uppercase tracking-tighter mb-2">Define Your Zones</h1>
-                    <p className="text-xs text-gray-400 font-bold tracking-widest uppercase mb-8">Select the locations in {organization?.name}</p>
-                    
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
-                        {globalLocs.map(loc => (
-                            <button 
-                                key={loc.id} onClick={() => toggleLoc(loc.name)}
-                                className={`p-4 rounded-2xl border-2 text-sm font-bold transition-all ${selectedLocs.includes(loc.name) ? 'border-purple-500 bg-purple-500/10 text-purple-400' : 'border-gray-800 bg-black hover:border-gray-600'}`}
-                            >
-                                {loc.name}
-                            </button>
-                        ))}
-                    </div>
-                    <button onClick={() => setStep(2)} disabled={selectedLocs.length === 0} className="w-full bg-white text-black py-4 rounded-2xl font-black uppercase text-xs hover:bg-purple-600 hover:text-white transition-all disabled:opacity-50 flex justify-center items-center gap-2">
-                        Next Step <ArrowRight size={16} />
-                    </button>
-                </div>
-            )}
-
-            {/* STEP 2: MATERIALS */}
-            {step === 2 && (
-                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <Package size={40} className="text-blue-500 mb-6" />
-                    <h1 className="text-3xl font-black uppercase tracking-tighter mb-2">The Starter Stash</h1>
-                    <p className="text-xs text-gray-400 font-bold tracking-widest uppercase mb-8">Select standard items from the Global Registry to track.</p>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
-                        {globalProducts.map(prod => (
-                            <div key={prod.id} onClick={() => toggleProduct(prod)} className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex justify-between items-center ${selectedProducts.find(p => p.id === prod.id) ? 'border-blue-500 bg-blue-500/10' : 'border-gray-800 bg-black hover:border-gray-600'}`}>
-                                <div>
-                                    <p className="font-bold text-sm">{prod.name}</p>
-                                    <p className="text-[10px] text-gray-500 uppercase tracking-widest">{prod.category_name} • {prod.unit_name}</p>
-                                </div>
-                                {selectedProducts.find(p => p.id === prod.id) && <Check size={18} className="text-blue-500" />}
-                            </div>
-                        ))}
-                    </div>
-                    <div className="flex gap-4">
-                        <button onClick={() => setStep(1)} className="px-6 bg-transparent border border-gray-700 text-gray-400 py-4 rounded-2xl font-black uppercase text-xs hover:bg-gray-800 transition-all">Back</button>
-                        <button onClick={() => setStep(3)} disabled={selectedProducts.length === 0} className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black uppercase text-xs hover:bg-blue-500 transition-all disabled:opacity-50">Configure Selection</button>
-                    </div>
-                </div>
-            )}
-
-            {/* STEP 3: DEEP CONFIG */}
-            {step === 3 && (
-                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <BarChart size={40} className="text-green-500 mb-6" />
-                    <h1 className="text-3xl font-black uppercase tracking-tighter mb-2">Configure Rules</h1>
-                    <p className="text-xs text-gray-400 font-bold tracking-widest uppercase mb-8">Where do these live, and do you want MRP restocking alerts?</p>
-                    
-                    <div className="space-y-4 mb-8 max-h-[50vh] overflow-y-auto pr-2">
-                        {selectedProducts.map(prod => {
-                            const conf = productConfigs[prod.id] || {}
-                            return (
-                                <div key={prod.id} className="bg-black border border-gray-800 p-6 rounded-3xl space-y-4">
-                                    <div className="flex justify-between items-center border-b border-gray-800 pb-4">
-                                        <h3 className="font-bold text-lg">{prod.name}</h3>
-                                        <label className="flex items-center gap-2 cursor-pointer">
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">MRP Rules</span>
-                                            <input type="checkbox" className="w-4 h-4 accent-green-500" checked={conf.is_mrp_enabled || false} onChange={e => updateConfig(prod.id, 'is_mrp_enabled', e.target.checked)} />
-                                        </label>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                        <div className={conf.is_mrp_enabled ? "col-span-1" : "col-span-3"}>
-                                            <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1">Home Location</label>
-                                            <select className="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl outline-none text-xs font-bold" value={conf.locationName || ''} onChange={e => updateConfig(prod.id, 'locationName', e.target.value)}>
-                                                <option value="">Select Room...</option>
-                                                {selectedLocs.map(loc => <option key={loc} value={loc}>{loc}</option>)}
-                                            </select>
-                                        </div>
-
-                                        {conf.is_mrp_enabled && (
-                                            <>
-                                                <div>
-                                                    <label className="text-[9px] font-black text-green-500 uppercase tracking-widest block mb-1">Reorder Point</label>
-                                                    <input type="number" min="0" className="w-full bg-gray-900 border border-green-900/50 focus:border-green-500 p-3 rounded-xl outline-none text-xs font-bold" placeholder="e.g. 2" value={conf.min_stock || ''} onChange={e => updateConfig(prod.id, 'min_stock', parseInt(e.target.value))} />
-                                                </div>
-                                                <div>
-                                                    <label className="text-[9px] font-black text-green-500 uppercase tracking-widest block mb-1">Lot Qty</label>
-                                                    <input type="number" min="0" className="w-full bg-gray-900 border border-green-900/50 focus:border-green-500 p-3 rounded-xl outline-none text-xs font-bold" placeholder="e.g. 1" value={conf.reorder_qty || ''} onChange={e => updateConfig(prod.id, 'reorder_qty', parseInt(e.target.value))} />
-                                                </div>
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                            )
-                        })}
-                    </div>
-
-                    <div className="flex gap-4">
-                        <button onClick={() => setStep(2)} className="px-6 bg-transparent border border-gray-700 text-gray-400 py-4 rounded-2xl font-black uppercase text-xs hover:bg-gray-800 transition-all">Back</button>
-                        <button onClick={handleFinalizeSetup} disabled={loading} className="flex-1 bg-green-600 text-white py-4 rounded-2xl font-black uppercase text-xs hover:bg-green-500 transition-all shadow-lg shadow-green-900/20">
-                            {loading ? 'Building Workspace...' : 'Initialize Keep Workspace'}
-                        </button>
-                    </div>
-                </div>
-            )}
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-purple-500">
+        <div className="animate-pulse flex flex-col items-center gap-4">
+          <Shield size={40} />
+          <p className="text-xs font-black uppercase tracking-widest text-gray-500">Inspecting Keep...</p>
         </div>
       </div>
     )
   }
 
-  // --- THE COMMAND CENTER DASHBOARD ---
   return (
-    <div className="p-4 md:p-8 text-white max-w-7xl mx-auto font-sans space-y-8 animate-in fade-in duration-500">
-        <div className="flex items-center gap-4 border-b border-gray-800 pb-6">
-            <Castle size={32} className="text-purple-500" />
-            <div>
-                <h1 className="text-3xl font-black uppercase tracking-tighter italic">Keep Command</h1>
-                <p className="text-gray-500 font-bold text-[10px] uppercase tracking-widest">Active Workspace: {organization?.name}</p>
-            </div>
-        </div>
+    <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans">
+      <div className="max-w-7xl mx-auto space-y-12">
+        
+        {/* DASHBOARD HEADER */}
+        <header className="border-b border-gray-800 pb-6">
+          <h1 className="text-4xl font-black uppercase tracking-tighter italic text-gray-100 mb-1">Command Center</h1>
+          <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">
+            <Shield size={12} className="text-purple-500" /> Live Inventory Overview
+          </p>
+        </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <button onClick={() => router.push('/materials')} className="bg-gray-900 p-8 rounded-[2.5rem] border border-gray-800 flex flex-col items-center justify-center text-center cursor-pointer hover:border-purple-500 hover:bg-purple-500/5 transition-all group shadow-xl">
-                <div className="w-16 h-16 bg-purple-500/20 rounded-3xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                    <Plus size={32} className="text-purple-500" />
+        {stock.length === 0 ? (
+          <div className="text-center py-20 bg-gray-900 border border-gray-800 rounded-3xl">
+            <Package size={48} className="mx-auto text-gray-700 mb-4" />
+            <h2 className="text-xl font-black uppercase tracking-tight text-gray-400">The Keep is Empty</h2>
+            <p className="text-xs font-bold text-gray-600 mt-2">Add goods to your master data and record transactions to see them here.</p>
+          </div>
+        ) : (
+          <div className="space-y-10">
+            {/* GROUPED LOCATIONS */}
+            {groupedData.map((group) => (
+              <section key={group.id} className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gray-900 border border-gray-800 rounded-lg flex items-center justify-center">
+                    <MapPin size={16} className="text-purple-500" />
+                  </div>
+                  <h2 className="text-xl font-black uppercase tracking-tight text-gray-200">{group.name}</h2>
+                  <span className="text-[10px] font-bold text-gray-500 bg-gray-900 px-2 py-1 rounded-md">
+                    {group.items.length} items
+                  </span>
                 </div>
-                <h3 className="font-black text-sm uppercase tracking-widest">Master Data</h3>
-                <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-2">{stats.totalItems} Items Tracked</p>
-            </button>
 
-            <button onClick={() => router.push('/inventory')} className="bg-gray-900 p-8 rounded-[2.5rem] border border-gray-800 flex flex-col items-center justify-center text-center cursor-pointer hover:border-blue-500 hover:bg-blue-500/5 transition-all group shadow-xl">
-                <div className="w-16 h-16 bg-blue-500/20 rounded-3xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                    <BarChart size={32} className="text-blue-500" />
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                  {group.items.map((item) => (
+                    <StockTile key={item.material_id} item={item} />
+                  ))}
                 </div>
-                <h3 className="font-black text-sm uppercase tracking-widest">Update Inventory</h3>
-                <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-2">Log Transactions</p>
-            </button>
+              </section>
+            ))}
 
-            <div className={`p-8 rounded-[2.5rem] border flex flex-col items-center justify-center text-center shadow-xl ${stats.lowStock > 0 ? 'bg-red-500/10 border-red-500/50' : 'bg-gray-900 border-gray-800'}`}>
-                <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-4 ${stats.lowStock > 0 ? 'bg-red-500/20' : 'bg-green-500/20'}`}>
-                    {stats.lowStock > 0 ? <AlertTriangle size={32} className="text-red-500" /> : <Check size={32} className="text-green-500" />}
+            {/* UNASSIGNED ITEMS */}
+            {unassignedItems.length > 0 && (
+              <section className="space-y-4 pt-6 border-t border-gray-800/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gray-900 border border-gray-800 rounded-lg flex items-center justify-center">
+                    <Package size={16} className="text-yellow-500" />
+                  </div>
+                  <h2 className="text-xl font-black uppercase tracking-tight text-gray-200">Unassigned Goods</h2>
                 </div>
-                <h3 className={`font-black text-sm uppercase tracking-widest ${stats.lowStock > 0 ? 'text-red-500' : 'text-green-500'}`}>
-                    {stats.lowStock > 0 ? 'Action Required' : 'All Stock Healthy'}
-                </h3>
-                <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-2">
-                    {stats.lowStock} Items Below Reorder Point
-                </p>
-            </div>
-        </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                  {unassignedItems.map((item) => (
+                    <StockTile key={item.material_id} item={item} />
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Sub-component for the individual stock cards
+function StockTile({ item }: { item: any }) {
+  const isLowStock = item.reorder_point > 0 && item.current_stock <= item.reorder_point
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 p-4 rounded-2xl hover:border-purple-500/50 transition-colors group relative overflow-hidden flex flex-col justify-between min-h-[100px]">
+      <div className="flex justify-between items-start gap-2">
+        <h3 className="text-xs font-bold leading-tight text-gray-300 group-hover:text-white transition-colors line-clamp-2">
+          {item.name}
+        </h3>
+        {isLowStock && (
+          <AlertCircle size={14} className="text-yellow-500 shrink-0" />
+        )}
+      </div>
+      
+      <div className="mt-4 flex items-end justify-between">
+        <p className="text-[9px] font-black uppercase tracking-widest text-gray-600 truncate max-w-[50px]">
+          {item.unit || 'QTY'}
+        </p>
+        <p className={`text-2xl font-black tracking-tighter leading-none ${isLowStock ? 'text-yellow-500' : 'text-purple-400'}`}>
+          {item.current_stock}
+        </p>
+      </div>
     </div>
   )
 }

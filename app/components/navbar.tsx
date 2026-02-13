@@ -12,9 +12,8 @@ const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env
 const KeepLogo = () => (
   <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-lg group-hover:scale-105 transition-transform">
     <rect width="32" height="32" rx="8" fill="url(#keep_gradient)" />
-    {/* Geometric structural lines */}
-    <path d="M10 12V22L16 25.5L22 22V12L19 10.5V14H13V10.5L10 12Z" fill="white" />
-    <path d="M13 8L16 6.5L19 8V10.5L16 9L13 10.5V8Z" fill="#D8B4FE" />
+    {/* Castle/Keep Silhouette */}
+    <path d="M8 22V11H11V8H14V11H18V8H21V11H24V22H18V16.5C18 15.6716 17.3284 15 16.5 15H15.5C14.6716 15 14 15.6716 14 16.5V22H8Z" fill="white" />
     <defs>
       <linearGradient id="keep_gradient" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
         <stop stopColor="#9333EA" /> {/* purple-600 */}
