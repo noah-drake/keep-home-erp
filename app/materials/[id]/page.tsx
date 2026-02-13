@@ -1,241 +1,254 @@
 'use client'
+import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { useEffect, useState, use } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
+import { useRouter, useParams } from 'next/navigation'
 import { useOrganization } from '../../context/OrganizationContext'
+import { ArrowLeft, Save, Trash2, Package, MapPin, Target, AlertTriangle, ArrowLeftRight } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
-export default function MaterialDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default function ItemMasterPage() {
   const router = useRouter()
+  const params = useParams()
+  const itemId = params.id as string
   const { organization } = useOrganization()
-  const resolvedParams = use(params)
-  const materialId = resolvedParams.id
 
   const [loading, setLoading] = useState(true)
-  const [isEditing, setIsEditing] = useState(false)
   const [saving, setSaving] = useState(false)
-  
-  const [item, setItem] = useState<any>(null)
-  const [locationBreakdown, setLocationBreakdown] = useState<any[]>([])
-  const [history, setHistory] = useState<any[]>([])
+  const [currentStock, setCurrentStock] = useState(0)
+
+  // Form State
+  const [name, setName] = useState('')
+  const [categoryId, setCategoryId] = useState('')
+  const [unitId, setUnitId] = useState('')
+  const [locationId, setLocationId] = useState('')
+  const [reorderPoint, setReorderPoint] = useState<number | ''>('')
+  const [lotQuantity, setLotQuantity] = useState<number | ''>('')
+
+  // Dropdown Data
   const [categories, setCategories] = useState<any[]>([])
-  const [locations, setLocations] = useState<any[]>([])
   const [units, setUnits] = useState<any[]>([])
-
-  const [form, setForm] = useState({
-    name: '', description: '', category_id: '', default_location_id: '',
-    unit: 'units', reorder_point: 0, lot_quantity: 1, active: true
-  })
-
-  // "On-the-fly" creation states
-  const [isNewCat, setIsNewCat] = useState(false);
-  const [newCatName, setNewCatName] = useState('');
-  const [isNewLoc, setIsNewLoc] = useState(false);
-  const [newLocName, setNewLocName] = useState('');
-  const [isNewUnit, setIsNewUnit] = useState(false);
-  const [newUnitName, setNewUnitName] = useState('');
+  const [locations, setLocations] = useState<any[]>([])
 
   useEffect(() => {
-    async function loadAll() {
-      if (!organization || materialId === 'undefined') return
+    const fetchData = async () => {
+      setLoading(true)
+      
+      // Fetch dropdown data
+      const [catRes, unitRes, locRes, matRes, stockRes] = await Promise.all([
+        supabase.from('categories').select('*').eq('organization_id', organization.id),
+        supabase.from('units').select('*').eq('organization_id', organization.id),
+        supabase.from('locations').select('*').eq('organization_id', organization.id),
+        supabase.from('materials').select('*').eq('id', itemId).single(),
+        supabase.from('view_current_stock').select('current_stock').eq('material_id', itemId).single()
+      ])
 
-      try {
-        const { data: cats } = await supabase.from('categories').select('*').order('name')
-        const { data: uns } = await supabase.from('units').select('*').order('name')
-        const { data: locs } = await supabase.from('locations').select('*').eq('organization_id', organization.id).order('name')
-        
-        setCategories(cats || []); setUnits(uns || []); setLocations(locs || [])
+      if (catRes.data) setCategories(catRes.data)
+      if (unitRes.data) setUnits(unitRes.data)
+      if (locRes.data) setLocations(locRes.data)
+      
+      if (stockRes.data) setCurrentStock(stockRes.data.current_stock || 0)
 
-        const { data: mat } = await supabase.from('materials').select('*, categories(name), locations(name)').eq('id', materialId).single()
-        const { data: breakdown } = await supabase.from('view_stock_by_location').select('*').eq('material_id', materialId).gt('quantity', 0)
-        const { data: moves } = await supabase.from('inventory_movements').select('*, locations(name)').eq('material_id', materialId).order('created_at', { ascending: false }).limit(10)
-
-        if (mat) {
-          setItem(mat)
-          setForm({
-            name: mat.name,
-            description: mat.description || '',
-            category_id: mat.category_id || '',
-            default_location_id: mat.default_location_id || '',
-            unit: mat.unit || 'units',
-            reorder_point: mat.reorder_point || 0,
-            lot_quantity: mat.lot_quantity || 1,
-            active: mat.active
-          })
-        }
-        setLocationBreakdown(breakdown || []); setHistory(moves || [])
-      } catch (e) { console.error(e) } finally { setLoading(false) }
+      if (matRes.data) {
+        setName(matRes.data.name)
+        setCategoryId(matRes.data.category_id || '')
+        setUnitId(matRes.data.unit_id || '')
+        setLocationId(matRes.data.default_location_id || '')
+        setReorderPoint(matRes.data.reorder_point ?? '')
+        setLotQuantity(matRes.data.lot_quantity ?? '')
+      }
+      setLoading(false)
     }
-    loadAll()
-  }, [materialId, organization])
+
+    if (organization && itemId) fetchData()
+  }, [organization, itemId])
 
   const handleSave = async () => {
-    if (!organization) return
     setSaving(true)
-
-    let finalCatId = form.category_id
-    let finalLocId = form.default_location_id
-    let finalUnit = form.unit
-
-    if (isNewCat && newCatName.trim()) {
-        const { data: c } = await supabase.from('categories').insert([{ name: newCatName, organization_id: organization.id }]).select().single()
-        if (c) finalCatId = c.id
-    }
-    if (isNewLoc && newLocName.trim()) {
-        const { data: l } = await supabase.from('locations').insert([{ name: newLocName, organization_id: organization.id }]).select().single()
-        if (l) finalLocId = l.id
-    }
-    if (isNewUnit && newUnitName.trim()) {
-        await supabase.from('units').insert([{ name: newUnitName, organization_id: organization.id }])
-        finalUnit = newUnitName
-    }
-
     const { error } = await supabase.from('materials').update({
-      name: form.name,
-      description: form.description,
-      category_id: finalCatId || null,
-      default_location_id: finalLocId || null,
-      unit: finalUnit,
-      reorder_point: form.reorder_point,
-      lot_quantity: form.lot_quantity,
-      active: form.active
-    }).eq('id', materialId)
+      name,
+      category_id: categoryId || null,
+      unit_id: unitId || null,
+      default_location_id: locationId || null,
+      reorder_point: reorderPoint === '' ? null : Number(reorderPoint),
+      lot_quantity: lotQuantity === '' ? null : Number(lotQuantity)
+    }).eq('id', itemId)
 
-    if (!error) { setIsEditing(false); window.location.reload(); }
     setSaving(false)
+    if (error) alert(error.message)
+    else router.push('/materials')
   }
 
-  if (loading) return <div className="p-8 text-white animate-pulse">Syncing Master Record...</div>
-  const totalStock = locationBreakdown.reduce((acc, curr) => acc + curr.quantity, 0)
+  const handleDelete = async () => {
+    if (!confirm(`DANGER: Are you sure you want to delete ${name}? This will also delete all transaction history for this item.`)) return
+    
+    const { error } = await supabase.from('materials').delete().eq('id', itemId)
+    if (error) alert(error.message)
+    else router.push('/materials')
+  }
+
+  if (loading) return null // Prevent layout jump while loading
 
   return (
-    <div className="min-h-screen text-white p-4 md:p-8 font-sans max-w-5xl mx-auto">
-      <div className="flex justify-between items-center mb-10">
-        <Link href="/materials" className="text-gray-500 hover:text-white text-xs font-bold uppercase tracking-widest">← Back</Link>
-        <button onClick={() => setIsEditing(!isEditing)} className={`px-8 py-2 rounded-xl font-bold transition-all ${isEditing ? 'bg-red-950 text-red-400' : 'bg-white text-black'}`}>
-          {isEditing ? 'Discard Changes' : 'Edit Material'}
-        </button>
-      </div>
-
-      <div className="space-y-8">
-        {/* HEADER AREA */}
-        <section>
-          {isEditing ? (
-            <input className="text-5xl font-black bg-transparent border-b-2 border-purple-500 outline-none w-full mb-2" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-          ) : (
-            <h1 className="text-6xl font-black tracking-tighter uppercase">{item?.name}</h1>
-          )}
-          
-          <div className="flex items-center gap-4 mt-2">
-            {isEditing ? (
-               <div className="flex items-center gap-2">
-                 {isNewCat ? (
-                    <input placeholder="New Category" className="bg-gray-800 text-xs p-1 rounded border border-purple-500" value={newCatName} onChange={e => setNewCatName(e.target.value)} />
-                 ) : (
-                    <select className="bg-gray-800 text-purple-400 text-xs font-bold px-3 py-1 rounded border border-purple-800" value={form.category_id} onChange={e => setForm({...form, category_id: e.target.value})}>
-                        <option value="">-- Select Category --</option>
-                        {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                 )}
-                 <button onClick={() => setIsNewCat(!isNewCat)} className="text-[10px] text-gray-500 underline">{isNewCat ? 'Cancel' : '+ New'}</button>
-               </div>
-            ) : (
-              <span className="bg-purple-900/20 text-purple-400 border border-purple-800 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
-                {item?.categories?.name || 'Uncategorized'}
-              </span>
-            )}
-          </div>
-        </section>
-
-        {/* REPLENISHMENT & STOCK DASHBOARD */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-gray-900 p-6 rounded-3xl border border-gray-800 text-center">
-            <span className="text-[10px] font-black text-gray-500 uppercase block mb-2">Total Stock</span>
-            <span className={`text-5xl font-black ${totalStock <= form.reorder_point ? 'text-red-500' : 'text-green-500'}`}>{totalStock}</span>
-            <span className="block text-xs text-gray-600 font-bold mt-1 uppercase">{form.unit}</span>
-          </div>
-
-          {/* EDITABLE REORDER POINT */}
-          <div className="bg-gray-900 p-6 rounded-3xl border border-gray-800 text-center">
-            <span className="text-[10px] font-black text-gray-500 uppercase block mb-2">Min. Stock Level</span>
-            {isEditing ? (
-              <input type="number" className="bg-black border border-purple-500 text-3xl font-black w-full text-center rounded-xl p-1" value={form.reorder_point} onChange={e => setForm({...form, reorder_point: parseInt(e.target.value) || 0})} />
-            ) : (
-              <span className="text-4xl font-black text-gray-300">{item?.reorder_point}</span>
-            )}
-          </div>
-
-          {/* EDITABLE BUY QUANTITY */}
-          <div className="bg-gray-900 p-6 rounded-3xl border border-gray-800 text-center">
-            <span className="text-[10px] font-black text-gray-500 uppercase block mb-2">Buy Qty (Lot)</span>
-            {isEditing ? (
-              <input type="number" className="bg-black border border-purple-500 text-3xl font-black w-full text-center rounded-xl p-1" value={form.lot_quantity} onChange={e => setForm({...form, lot_quantity: parseInt(e.target.value) || 1})} />
-            ) : (
-              <span className="text-4xl font-black text-blue-400">+{item?.lot_quantity}</span>
-            )}
-          </div>
-
-          {/* STATUS TOGGLE */}
-          <div className="bg-gray-900 p-6 rounded-3xl border border-gray-800 flex flex-col justify-center items-center">
-            <span className="text-[10px] font-black text-gray-500 uppercase block mb-2">Active Status</span>
+    <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
+      <div className="max-w-4xl mx-auto space-y-8">
+        
+        {/* HEADER & NAVIGATION */}
+        <div className="flex items-center justify-between border-b border-gray-800 pb-6">
+          <div className="flex items-center gap-4">
             <button 
-              disabled={!isEditing} 
-              onClick={() => setForm({...form, active: !form.active})}
-              className={`text-xs font-black px-4 py-2 rounded-full border ${form.active ? 'bg-green-900/20 text-green-400 border-green-800' : 'bg-red-900/20 text-red-400 border-red-800'}`}
+              onClick={() => router.push('/materials')}
+              className="p-3 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 hover:text-white hover:border-purple-500 transition-all"
             >
-              {form.active ? 'ACTIVE' : 'INACTIVE'}
+              <ArrowLeft size={20} />
             </button>
+            <div>
+              <h1 className="text-3xl font-black uppercase tracking-tighter italic text-gray-100">{name}</h1>
+              <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Master Data Configuration</p>
+            </div>
+          </div>
+          
+          <div className="flex gap-3">
+             <button 
+               onClick={() => router.push(`/inventory/new?material_id=${itemId}`)}
+               className="hidden sm:flex items-center gap-2 bg-[#0f0f0f] border border-gray-800 hover:border-purple-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-purple-400"
+             >
+               <ArrowLeftRight size={14} /> Quick Transact
+             </button>
+             <button 
+               onClick={handleSave} 
+               disabled={saving}
+               className="bg-purple-600 hover:bg-purple-500 px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20"
+             >
+               <Save size={14} /> {saving ? 'Saving...' : 'Save File'}
+             </button>
           </div>
         </div>
 
-        {/* SECONDARY INFO: LOCATION & DESCRIPTION */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-gray-900/50 p-8 rounded-3xl border border-gray-800 space-y-4">
-            <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest">Storage Logistics</h3>
-            <div className="flex justify-between items-center border-b border-gray-800 pb-4">
-              <span className="text-sm text-gray-400">Default Primary Location:</span>
-              {isEditing ? (
-                <select className="bg-black border border-purple-500 text-sm p-2 rounded-lg" value={form.default_location_id} onChange={e => setForm({...form, default_location_id: e.target.value})}>
-                  <option value="">-- Set Default --</option>
-                  {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
-              ) : (
-                <span className="font-black text-purple-400">{item?.locations?.name || 'NOT CONFIGURED'}</span>
-              )}
-            </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          
+          {/* MAIN CONFIGURATION COLUMN */}
+          <div className="md:col-span-2 space-y-6">
             
-            <div className="space-y-2 pt-2">
-                <span className="text-[10px] font-black text-gray-600 uppercase">Description</span>
-                {isEditing ? (
-                  <textarea className="w-full bg-black border border-gray-700 p-3 rounded-xl text-sm" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
-                ) : (
-                  <p className="text-sm text-gray-400 italic">{item?.description || "No description provided."}</p>
-                )}
+            {/* Identity Box */}
+            <div className="bg-[#0f0f0f] border border-gray-800 p-6 rounded-[2rem] space-y-6">
+               <div className="flex items-center gap-3 border-b border-gray-800/50 pb-4">
+                  <Package size={16} className="text-purple-500" />
+                  <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">Core Identity</h2>
+               </div>
+               
+               <div className="space-y-4">
+                 <div>
+                   <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Item Name</label>
+                   <input 
+                     value={name} 
+                     onChange={e => setName(e.target.value)} 
+                     className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200"
+                   />
+                 </div>
+                 
+                 <div className="grid grid-cols-2 gap-4">
+                   <div>
+                     <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Category</label>
+                     <select 
+                       value={categoryId} 
+                       onChange={e => setCategoryId(e.target.value)}
+                       className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200 appearance-none"
+                     >
+                       <option value="">Uncategorized</option>
+                       {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                     </select>
+                   </div>
+                   <div>
+                     <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Unit of Measure</label>
+                     <select 
+                       value={unitId} 
+                       onChange={e => setUnitId(e.target.value)}
+                       className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200 appearance-none"
+                     >
+                       <option value="">No Unit Set</option>
+                       {units.map(u => <option key={u.id} value={u.id}>{u.name} ({u.abbreviation})</option>)}
+                     </select>
+                   </div>
+                 </div>
+               </div>
             </div>
+
+            {/* Logistics & Rules Box */}
+            <div className="bg-[#0f0f0f] border border-gray-800 p-6 rounded-[2rem] space-y-6">
+               <div className="flex items-center gap-3 border-b border-gray-800/50 pb-4">
+                  <Target size={16} className="text-blue-500" />
+                  <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">Logistics & Rules</h2>
+               </div>
+               
+               <div className="space-y-4">
+                 <div>
+                   <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Default Chamber (Location)</label>
+                   <select 
+                     value={locationId} 
+                     onChange={e => setLocationId(e.target.value)}
+                     className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-blue-500 transition-colors font-bold text-sm text-gray-200 appearance-none"
+                   >
+                     <option value="">No Location Assigned</option>
+                     {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                   </select>
+                 </div>
+                 
+                 <div className="grid grid-cols-2 gap-4">
+                   <div>
+                     <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Reorder Point (MRP)</label>
+                     <input 
+                       type="number"
+                       value={reorderPoint} 
+                       onChange={e => setReorderPoint(e.target.value ? Number(e.target.value) : '')} 
+                       placeholder="e.g. 5"
+                       className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-yellow-500 transition-colors font-bold text-sm text-gray-200"
+                     />
+                   </div>
+                   <div>
+                     <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Standard Lot Qty</label>
+                     <input 
+                       type="number"
+                       value={lotQuantity} 
+                       onChange={e => setLotQuantity(e.target.value ? Number(e.target.value) : '')} 
+                       placeholder="e.g. 12"
+                       className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-blue-500 transition-colors font-bold text-sm text-gray-200"
+                     />
+                   </div>
+                 </div>
+               </div>
+            </div>
+
           </div>
 
-          <div className="bg-gray-900/50 p-8 rounded-3xl border border-gray-800 overflow-hidden">
-            <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-4">Stock Breakdown</h3>
-            {locationBreakdown.length > 0 ? (
-                <div className="divide-y divide-gray-800">
-                  {locationBreakdown.map((loc, i) => (
-                    <div key={i} className="py-3 flex justify-between items-center">
-                        <span className="font-bold text-gray-300">{loc.location_name}</span>
-                        <span className="font-mono text-xl">{loc.quantity} <span className="text-[10px] text-gray-600">{form.unit}</span></span>
-                    </div>
-                  ))}
-                </div>
-            ) : <p className="text-gray-600 text-sm italic">Physically out of stock in all locations.</p>}
+          {/* SIDEBAR COLUMN */}
+          <div className="space-y-6">
+             
+             {/* Live Stock Widget */}
+             <div className="bg-purple-900/10 border border-purple-500/30 p-6 rounded-[2rem] text-center space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-purple-400">Current Stock</p>
+                <p className="text-6xl font-black tracking-tighter text-white">{currentStock}</p>
+             </div>
+
+             {/* Danger Zone */}
+             <div className="bg-red-950/10 border border-red-900/30 p-6 rounded-[2rem] space-y-4 mt-8">
+               <div className="flex items-center gap-2">
+                 <AlertTriangle size={14} className="text-red-500" />
+                 <h3 className="text-[10px] font-black uppercase tracking-widest text-red-500">Danger Zone</h3>
+               </div>
+               <p className="text-xs text-red-400/70 font-bold leading-relaxed">
+                 Deleting this material will erase its master file and permanently orphan its transaction history.
+               </p>
+               <button 
+                 onClick={handleDelete}
+                 className="w-full bg-red-950/50 hover:bg-red-900 text-red-500 hover:text-white border border-red-900/50 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors"
+               >
+                 Delete Material
+               </button>
+             </div>
+
           </div>
         </div>
-
-        {isEditing && (
-            <button onClick={handleSave} disabled={saving} className="w-full bg-green-600 py-6 rounded-3xl font-black text-2xl hover:bg-green-500 shadow-2xl transition-all">
-                {saving ? 'UPDATING MASTER RECORD...' : 'AUTHORIZE CHANGES'}
-            </button>
-        )}
       </div>
     </div>
   )

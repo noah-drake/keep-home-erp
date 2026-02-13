@@ -10,24 +10,39 @@ const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env
 export default function DashboardPage() {
   const router = useRouter()
   const { organization } = useOrganization()
+  
   const [locations, setLocations] = useState<any[]>([])
   const [stock, setStock] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Defined inside useEffect to satisfy Next.js strict build rules
     const fetchData = async () => {
       setLoading(true)
-      const { data: locData } = await supabase.from('locations').select('*').eq('organization_id', organization.id).order('name')
-      const { data: stockData } = await supabase.from('view_current_stock').select('*').eq('organization_id', organization.id).gt('current_stock', 0).order('name')
+      
+      const { data: locData } = await supabase.from('locations')
+        .select('*')
+        .eq('organization_id', organization.id)
+        .order('name')
+        
+      const { data: stockData } = await supabase.from('view_current_stock')
+        .select('*')
+        .eq('organization_id', organization.id)
+        .gt('current_stock', 0) 
+        .order('name')
 
       if (locData) setLocations(locData)
       if (stockData) setStock(stockData)
+      
       setLoading(false)
     }
 
-    if (organization) fetchData()
+    if (organization) {
+      fetchData()
+    }
   }, [organization]) 
 
+  // Group stock by location Chamber
   const groupedData = locations.map(loc => ({
     ...loc,
     items: stock.filter(item => item.default_location_id === loc.id)
@@ -49,6 +64,8 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans">
       <div className="max-w-7xl mx-auto space-y-12 pb-20">
+        
+        {/* DASHBOARD HEADER */}
         <header className="border-b border-gray-800 pb-6">
           <h1 className="text-4xl font-black uppercase tracking-tighter italic text-gray-100 mb-1">Command Center</h1>
           <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">
@@ -64,6 +81,7 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="space-y-8">
+            {/* GROUPED LOCATIONS */}
             {groupedData.map((group) => (
               <section key={group.id} className="bg-[#0f0f0f] border border-gray-800 p-6 md:p-8 rounded-[2.5rem] shadow-2xl space-y-6">
                 <div className="flex items-center gap-3 border-b border-gray-800/50 pb-4">
@@ -86,6 +104,7 @@ export default function DashboardPage() {
               </section>
             ))}
 
+            {/* UNASSIGNED ITEMS */}
             {unassignedItems.length > 0 && (
               <section className="bg-[#1a110a] border border-yellow-900/30 p-6 md:p-8 rounded-[2.5rem] shadow-2xl space-y-6">
                 <div className="flex items-center gap-3 border-b border-yellow-900/30 pb-4">
@@ -111,21 +130,30 @@ export default function DashboardPage() {
   )
 }
 
+// Sub-component for individual stock cards
 function StockTile({ item, router }: { item: any, router: any }) {
   const isLowStock = item.reorder_point > 0 && item.current_stock <= item.reorder_point
 
   return (
-    <div className="bg-black border border-gray-800 p-5 rounded-3xl hover:border-purple-500/50 transition-all group relative overflow-hidden flex flex-col justify-between min-h-[120px] shadow-lg">
+    <div 
+      onClick={() => router.push(`/materials/${item.material_id}`)}
+      className="cursor-pointer bg-black border border-gray-800 p-5 rounded-3xl hover:border-purple-500/50 transition-all group relative overflow-hidden flex flex-col justify-between min-h-[120px] shadow-lg"
+    >
       <div className="flex justify-between items-start gap-2">
         <h3 className="text-xs font-bold leading-tight text-gray-300 group-hover:text-white transition-colors line-clamp-2">
           {item.name}
         </h3>
         
-        {/* Dynamic Top Right Icon (Alert or Transact) */}
+        {/* Dynamic Top Right Icons */}
         <div className="flex items-center gap-2">
           {isLowStock && <AlertCircle size={16} className="text-yellow-500 shrink-0" />}
+          
+          {/* Quick Transact Button */}
           <button 
-            onClick={(e) => { e.stopPropagation(); router.push(`/inventory/new?material_id=${item.material_id}`) }}
+            onClick={(e) => { 
+              e.stopPropagation(); // Prevents the tile's main onClick from firing
+              router.push(`/inventory/new?material_id=${item.material_id}`) 
+            }}
             className="p-1.5 bg-gray-900 rounded-lg text-gray-500 hover:text-purple-400 hover:bg-gray-800 transition-colors opacity-0 group-hover:opacity-100"
             title="Quick Transact"
           >
