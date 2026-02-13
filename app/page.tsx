@@ -13,38 +13,37 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (organization) fetchData()
-  }, [organization])
-
-  const fetchData = async () => {
-    setLoading(true)
-    
-    // 1. Fetch all locations for this plant
-    const { data: locData } = await supabase.from('locations')
-      .select('*')
-      .eq('organization_id', organization.id)
-      .order('name')
+    // Moved inside the useEffect to satisfy Next.js strict build rules
+    const fetchData = async () => {
+      setLoading(true)
       
-    // 2. Fetch current stock levels
-    const { data: stockData } = await supabase.from('view_current_stock')
-      .select('*')
-      .eq('organization_id', organization.id)
-      .gt('current_stock', 0) // Only show items actually in stock
-      .order('name')
+      const { data: locData } = await supabase.from('locations')
+        .select('*')
+        .eq('organization_id', organization.id)
+        .order('name')
+        
+      const { data: stockData } = await supabase.from('view_current_stock')
+        .select('*')
+        .eq('organization_id', organization.id)
+        .gt('current_stock', 0) 
+        .order('name')
 
-    if (locData) setLocations(locData)
-    if (stockData) setStock(stockData)
-    
-    setLoading(false)
-  }
+      if (locData) setLocations(locData)
+      if (stockData) setStock(stockData)
+      
+      setLoading(false)
+    }
 
-  // Group stock by location
+    if (organization) {
+      fetchData()
+    }
+  }, [organization]) // Now the dependency array is perfectly clean
+
   const groupedData = locations.map(loc => ({
     ...loc,
     items: stock.filter(item => item.default_location_id === loc.id)
-  })).filter(loc => loc.items.length > 0) // Hide empty locations
+  })).filter(loc => loc.items.length > 0) 
 
-  // Find items that have stock but no assigned location
   const unassignedItems = stock.filter(item => !item.default_location_id)
 
   if (loading) {
@@ -61,8 +60,6 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans">
       <div className="max-w-7xl mx-auto space-y-12">
-        
-        {/* DASHBOARD HEADER */}
         <header className="border-b border-gray-800 pb-6">
           <h1 className="text-4xl font-black uppercase tracking-tighter italic text-gray-100 mb-1">Command Center</h1>
           <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">
@@ -78,7 +75,6 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="space-y-10">
-            {/* GROUPED LOCATIONS */}
             {groupedData.map((group) => (
               <section key={group.id} className="space-y-4">
                 <div className="flex items-center gap-3">
@@ -92,14 +88,13 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                  {group.items.map((item) => (
+                  {group.items.map((item: any) => (
                     <StockTile key={item.material_id} item={item} />
                   ))}
                 </div>
               </section>
             ))}
 
-            {/* UNASSIGNED ITEMS */}
             {unassignedItems.length > 0 && (
               <section className="space-y-4 pt-6 border-t border-gray-800/50">
                 <div className="flex items-center gap-3">
@@ -109,7 +104,7 @@ export default function DashboardPage() {
                   <h2 className="text-xl font-black uppercase tracking-tight text-gray-200">Unassigned Goods</h2>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                  {unassignedItems.map((item) => (
+                  {unassignedItems.map((item: any) => (
                     <StockTile key={item.material_id} item={item} />
                   ))}
                 </div>
@@ -122,7 +117,6 @@ export default function DashboardPage() {
   )
 }
 
-// Sub-component for the individual stock cards
 function StockTile({ item }: { item: any }) {
   const isLowStock = item.reorder_point > 0 && item.current_stock <= item.reorder_point
 
