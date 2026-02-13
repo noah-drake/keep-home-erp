@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter, useParams } from 'next/navigation'
 import { useOrganization } from '../../context/OrganizationContext'
-import { ArrowLeft, Save, Trash2, Package, MapPin, Target, AlertTriangle, ArrowLeftRight } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, Package, MapPin, Target, AlertTriangle, ArrowLeftRight, Edit2, X } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
@@ -15,6 +15,9 @@ export default function ItemMasterPage() {
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+  
   const [currentStock, setCurrentStock] = useState(0)
 
   // Form State
@@ -25,7 +28,7 @@ export default function ItemMasterPage() {
   const [reorderPoint, setReorderPoint] = useState<number | ''>('')
   const [lotQuantity, setLotQuantity] = useState<number | ''>('')
 
-  // Dropdown Data
+  // Dropdown Master Data
   const [categories, setCategories] = useState<any[]>([])
   const [units, setUnits] = useState<any[]>([])
   const [locations, setLocations] = useState<any[]>([])
@@ -34,8 +37,11 @@ export default function ItemMasterPage() {
     const fetchData = async () => {
       setLoading(true)
       
-      // Fetch dropdown data
-      const [catRes, unitRes, locRes, matRes, stockRes] = await Promise.all([
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      // Check User Role & Fetch Dropdown Master Data
+      const [roleRes, catRes, unitRes, locRes, matRes, stockRes] = await Promise.all([
+        user ? supabase.from('organization_members').select('role').eq('organization_id', organization.id).eq('user_id', user.id).single() : Promise.resolve({ data: null }),
         supabase.from('categories').select('*').eq('organization_id', organization.id),
         supabase.from('units').select('*').eq('organization_id', organization.id),
         supabase.from('locations').select('*').eq('organization_id', organization.id),
@@ -43,16 +49,17 @@ export default function ItemMasterPage() {
         supabase.from('view_current_stock').select('current_stock').eq('material_id', itemId).single()
       ])
 
+      if (roleRes.data) setIsAdmin(['admin', 'owner'].includes(roleRes.data.role))
       if (catRes.data) setCategories(catRes.data)
       if (unitRes.data) setUnits(unitRes.data)
       if (locRes.data) setLocations(locRes.data)
-      
       if (stockRes.data) setCurrentStock(stockRes.data.current_stock || 0)
 
       if (matRes.data) {
         setName(matRes.data.name)
         setCategoryId(matRes.data.category_id || '')
-        setUnitId(matRes.data.unit_id || '')
+        // Gracefully handle if your DB uses `unit_id` OR `unit` string column
+        setUnitId(matRes.data.unit_id || (units.find(u => u.name === matRes.data.unit)?.id) || '')
         setLocationId(matRes.data.default_location_id || '')
         setReorderPoint(matRes.data.reorder_point ?? '')
         setLotQuantity(matRes.data.lot_quantity ?? '')
@@ -65,18 +72,22 @@ export default function ItemMasterPage() {
 
   const handleSave = async () => {
     setSaving(true)
-    const { error } = await supabase.from('materials').update({
+    
+    // Construct payload. Safely updates unit_id. 
+    const payload = {
       name,
       category_id: categoryId || null,
       unit_id: unitId || null,
       default_location_id: locationId || null,
       reorder_point: reorderPoint === '' ? null : Number(reorderPoint),
       lot_quantity: lotQuantity === '' ? null : Number(lotQuantity)
-    }).eq('id', itemId)
+    }
+
+    const { error } = await supabase.from('materials').update(payload).eq('id', itemId)
 
     setSaving(false)
     if (error) alert(error.message)
-    else router.push('/materials')
+    else setIsEditing(false) // Exit edit mode on success
   }
 
   const handleDelete = async () => {
@@ -87,14 +98,19 @@ export default function ItemMasterPage() {
     else router.push('/materials')
   }
 
-  if (loading) return null // Prevent layout jump while loading
+  // Display Helpers
+  const displayCategory = categories.find(c => c.id === categoryId)?.name || 'Uncategorized'
+  const displayUnit = units.find(u => u.id === unitId)?.name || 'No Unit Set'
+  const displayLocation = locations.find(l => l.id === locationId)?.name || 'No Chamber Assigned'
+
+  if (loading) return null
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
       <div className="max-w-4xl mx-auto space-y-8">
         
         {/* HEADER & NAVIGATION */}
-        <div className="flex items-center justify-between border-b border-gray-800 pb-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-6 gap-4">
           <div className="flex items-center gap-4">
             <button 
               onClick={() => router.push('/materials')}
@@ -111,17 +127,37 @@ export default function ItemMasterPage() {
           <div className="flex gap-3">
              <button 
                onClick={() => router.push(`/inventory/new?material_id=${itemId}`)}
-               className="hidden sm:flex items-center gap-2 bg-[#0f0f0f] border border-gray-800 hover:border-purple-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-purple-400"
+               className="flex items-center gap-2 bg-[#0f0f0f] border border-gray-800 hover:border-purple-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-purple-400"
              >
-               <ArrowLeftRight size={14} /> Quick Transact
+               <ArrowLeftRight size={14} /> Transact
              </button>
-             <button 
-               onClick={handleSave} 
-               disabled={saving}
-               className="bg-purple-600 hover:bg-purple-500 px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20"
-             >
-               <Save size={14} /> {saving ? 'Saving...' : 'Save File'}
-             </button>
+
+             {isAdmin && !isEditing && (
+               <button 
+                 onClick={() => setIsEditing(true)}
+                 className="flex items-center gap-2 bg-gray-900 border border-gray-800 hover:bg-gray-800 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-white"
+               >
+                 <Edit2 size={14} /> Edit Details
+               </button>
+             )}
+
+             {isEditing && (
+               <>
+                 <button 
+                   onClick={() => setIsEditing(false)}
+                   className="flex items-center gap-2 bg-gray-900 border border-gray-800 hover:text-red-400 hover:border-red-900/50 px-4 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-gray-400"
+                 >
+                   <X size={14} /> Cancel
+                 </button>
+                 <button 
+                   onClick={handleSave} 
+                   disabled={saving}
+                   className="bg-purple-600 hover:bg-purple-500 px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20"
+                 >
+                   <Save size={14} /> {saving ? 'Saving...' : 'Save File'}
+                 </button>
+               </>
+             )}
           </div>
         </div>
 
@@ -131,7 +167,7 @@ export default function ItemMasterPage() {
           <div className="md:col-span-2 space-y-6">
             
             {/* Identity Box */}
-            <div className="bg-[#0f0f0f] border border-gray-800 p-6 rounded-[2rem] space-y-6">
+            <div className={`bg-[#0f0f0f] border p-6 rounded-[2rem] space-y-6 transition-colors ${isEditing ? 'border-purple-500/50' : 'border-gray-800'}`}>
                <div className="flex items-center gap-3 border-b border-gray-800/50 pb-4">
                   <Package size={16} className="text-purple-500" />
                   <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">Core Identity</h2>
@@ -140,42 +176,42 @@ export default function ItemMasterPage() {
                <div className="space-y-4">
                  <div>
                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Item Name</label>
-                   <input 
-                     value={name} 
-                     onChange={e => setName(e.target.value)} 
-                     className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200"
-                   />
+                   {isEditing ? (
+                     <input value={name} onChange={e => setName(e.target.value)} className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200" />
+                   ) : (
+                     <p className="font-bold text-sm text-gray-200 bg-black/50 p-4 rounded-xl border border-gray-800/50">{name}</p>
+                   )}
                  </div>
                  
                  <div className="grid grid-cols-2 gap-4">
                    <div>
                      <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Category</label>
-                     <select 
-                       value={categoryId} 
-                       onChange={e => setCategoryId(e.target.value)}
-                       className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200 appearance-none"
-                     >
-                       <option value="">Uncategorized</option>
-                       {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                     </select>
+                     {isEditing ? (
+                       <select value={categoryId} onChange={e => setCategoryId(e.target.value)} className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200 appearance-none">
+                         <option value="">Uncategorized</option>
+                         {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                       </select>
+                     ) : (
+                       <p className="font-bold text-sm text-gray-400 bg-black/50 p-4 rounded-xl border border-gray-800/50">{displayCategory}</p>
+                     )}
                    </div>
                    <div>
                      <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Unit of Measure</label>
-                     <select 
-                       value={unitId} 
-                       onChange={e => setUnitId(e.target.value)}
-                       className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200 appearance-none"
-                     >
-                       <option value="">No Unit Set</option>
-                       {units.map(u => <option key={u.id} value={u.id}>{u.name} ({u.abbreviation})</option>)}
-                     </select>
+                     {isEditing ? (
+                       <select value={unitId} onChange={e => setUnitId(e.target.value)} className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200 appearance-none">
+                         <option value="">No Unit Set</option>
+                         {units.map(u => <option key={u.id} value={u.id}>{u.name} ({u.abbreviation})</option>)}
+                       </select>
+                     ) : (
+                       <p className="font-bold text-sm text-gray-400 bg-black/50 p-4 rounded-xl border border-gray-800/50">{displayUnit}</p>
+                     )}
                    </div>
                  </div>
                </div>
             </div>
 
             {/* Logistics & Rules Box */}
-            <div className="bg-[#0f0f0f] border border-gray-800 p-6 rounded-[2rem] space-y-6">
+            <div className={`bg-[#0f0f0f] border p-6 rounded-[2rem] space-y-6 transition-colors ${isEditing ? 'border-blue-500/50' : 'border-gray-800'}`}>
                <div className="flex items-center gap-3 border-b border-gray-800/50 pb-4">
                   <Target size={16} className="text-blue-500" />
                   <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">Logistics & Rules</h2>
@@ -184,36 +220,32 @@ export default function ItemMasterPage() {
                <div className="space-y-4">
                  <div>
                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Default Chamber (Location)</label>
-                   <select 
-                     value={locationId} 
-                     onChange={e => setLocationId(e.target.value)}
-                     className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-blue-500 transition-colors font-bold text-sm text-gray-200 appearance-none"
-                   >
-                     <option value="">No Location Assigned</option>
-                     {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                   </select>
+                   {isEditing ? (
+                     <select value={locationId} onChange={e => setLocationId(e.target.value)} className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-blue-500 transition-colors font-bold text-sm text-gray-200 appearance-none">
+                       <option value="">No Location Assigned</option>
+                       {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                     </select>
+                   ) : (
+                     <p className="font-bold text-sm text-gray-400 bg-black/50 p-4 rounded-xl border border-gray-800/50">{displayLocation}</p>
+                   )}
                  </div>
                  
                  <div className="grid grid-cols-2 gap-4">
                    <div>
                      <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Reorder Point (MRP)</label>
-                     <input 
-                       type="number"
-                       value={reorderPoint} 
-                       onChange={e => setReorderPoint(e.target.value ? Number(e.target.value) : '')} 
-                       placeholder="e.g. 5"
-                       className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-yellow-500 transition-colors font-bold text-sm text-gray-200"
-                     />
+                     {isEditing ? (
+                       <input type="number" value={reorderPoint} onChange={e => setReorderPoint(e.target.value ? Number(e.target.value) : '')} placeholder="e.g. 5" className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-yellow-500 transition-colors font-bold text-sm text-gray-200" />
+                     ) : (
+                       <p className="font-bold text-sm text-yellow-500 bg-black/50 p-4 rounded-xl border border-gray-800/50">{reorderPoint !== '' ? reorderPoint : 'Not Set'}</p>
+                     )}
                    </div>
                    <div>
                      <label className="block text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Standard Lot Qty</label>
-                     <input 
-                       type="number"
-                       value={lotQuantity} 
-                       onChange={e => setLotQuantity(e.target.value ? Number(e.target.value) : '')} 
-                       placeholder="e.g. 12"
-                       className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-blue-500 transition-colors font-bold text-sm text-gray-200"
-                     />
+                     {isEditing ? (
+                       <input type="number" value={lotQuantity} onChange={e => setLotQuantity(e.target.value ? Number(e.target.value) : '')} placeholder="e.g. 12" className="w-full bg-black border border-gray-800 p-4 rounded-xl outline-none focus:border-blue-500 transition-colors font-bold text-sm text-gray-200" />
+                     ) : (
+                       <p className="font-bold text-sm text-gray-400 bg-black/50 p-4 rounded-xl border border-gray-800/50">{lotQuantity !== '' ? lotQuantity : 'Not Set'}</p>
+                     )}
                    </div>
                  </div>
                </div>
@@ -225,27 +257,30 @@ export default function ItemMasterPage() {
           <div className="space-y-6">
              
              {/* Live Stock Widget */}
-             <div className="bg-purple-900/10 border border-purple-500/30 p-6 rounded-[2rem] text-center space-y-2">
+             <div className="bg-[#1a0b2e] border border-purple-500/30 p-8 rounded-[2rem] text-center space-y-2 shadow-2xl shadow-purple-900/20">
                 <p className="text-[10px] font-black uppercase tracking-widest text-purple-400">Current Stock</p>
-                <p className="text-6xl font-black tracking-tighter text-white">{currentStock}</p>
+                <p className="text-7xl font-black tracking-tighter text-white">{currentStock}</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">{displayUnit}</p>
              </div>
 
-             {/* Danger Zone */}
-             <div className="bg-red-950/10 border border-red-900/30 p-6 rounded-[2rem] space-y-4 mt-8">
-               <div className="flex items-center gap-2">
-                 <AlertTriangle size={14} className="text-red-500" />
-                 <h3 className="text-[10px] font-black uppercase tracking-widest text-red-500">Danger Zone</h3>
+             {/* Danger Zone (Only Visible to Admins in Edit Mode) */}
+             {isAdmin && isEditing && (
+               <div className="bg-red-950/10 border border-red-900/30 p-6 rounded-[2rem] space-y-4 mt-8 animate-in fade-in slide-in-from-top-4">
+                 <div className="flex items-center gap-2">
+                   <AlertTriangle size={14} className="text-red-500" />
+                   <h3 className="text-[10px] font-black uppercase tracking-widest text-red-500">Danger Zone</h3>
+                 </div>
+                 <p className="text-[10px] text-red-400/70 font-bold leading-relaxed uppercase tracking-widest">
+                   Permanent deletion of master data and transaction history.
+                 </p>
+                 <button 
+                   onClick={handleDelete}
+                   className="w-full bg-red-950/50 hover:bg-red-900 text-red-500 hover:text-white border border-red-900/50 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2"
+                 >
+                   <Trash2 size={14} /> Delete Material
+                 </button>
                </div>
-               <p className="text-xs text-red-400/70 font-bold leading-relaxed">
-                 Deleting this material will erase its master file and permanently orphan its transaction history.
-               </p>
-               <button 
-                 onClick={handleDelete}
-                 className="w-full bg-red-950/50 hover:bg-red-900 text-red-500 hover:text-white border border-red-900/50 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors"
-               >
-                 Delete Material
-               </button>
-             </div>
+             )}
 
           </div>
         </div>
