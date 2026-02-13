@@ -12,7 +12,7 @@ export default function Dashboard() {
   const { organization } = useOrganization()
   
   const [hasData, setHasData] = useState<boolean | null>(null)
-  const [step, setStep] = useState(0) // 0 = Checking, 1 = Locs, 2 = Mats, 3 = Config
+  const [step, setStep] = useState(0)
   const [loading, setLoading] = useState(false)
 
   // Global Data
@@ -30,7 +30,7 @@ export default function Dashboard() {
   useEffect(() => {
     async function init() {
       if (!organization) return
-      // Check if they already have locations
+      
       const { count } = await supabase.from('locations').select('*', { count: 'exact', head: true }).eq('organization_id', organization.id)
       
       if (count && count > 0) {
@@ -53,16 +53,17 @@ export default function Dashboard() {
       // Get Total Items
       const { count: total } = await supabase.from('materials').select('*', { count: 'exact', head: true }).eq('organization_id', organization.id)
       
-      // Get Low Stock Items (Current Stock <= Min Stock AND MRP is enabled)
-      const { data: lowStockData } = await supabase.from('materials')
-          .select('id')
+      // Look at your highly advanced view to calculate low stock!
+      const { data: allItems } = await supabase.from('view_current_stock')
+          .select('*')
           .eq('organization_id', organization.id)
-          .eq('is_mrp_enabled', true)
-          .lte('current_stock', 'min_stock_level') // Supabase filter for column comparison is tricky, doing simple fetch for now
-
-      // More reliable low stock calculation for the frontend
-      const { data: allItems } = await supabase.from('materials').select('*').eq('organization_id', organization.id).eq('is_mrp_enabled', true)
-      const lowCount = allItems?.filter(item => item.current_stock <= item.min_stock_level).length || 0
+          .eq('active', true)
+      
+      // Calculate how many items have dropped below their reorder point
+      const lowCount = allItems?.filter(item => 
+          item.reorder_point !== null && 
+          item.current_stock <= item.reorder_point
+      ).length || 0
 
       setStats({ totalItems: total || 0, lowStock: lowCount })
   }
@@ -77,7 +78,7 @@ export default function Dashboard() {
       }))
   }
 
-  // --- THE MASSIVE BULK INSERT ---
+  // --- THE PERFECTLY MAPPED BULK INSERT ---
   const handleFinalizeSetup = async () => {
       setLoading(true)
       try {
@@ -87,41 +88,43 @@ export default function Dashboard() {
               .select()
           if (locError) throw new Error("Locations Error: " + locError.message)
 
-          // 2. Clone Categories & Units
+          // 2. Clone Categories (Your Categories use integer IDs)
           const categoriesToClone = Array.from(new Set(selectedProducts.map(p => p.category_name).filter(Boolean)))
           const unitsToClone = Array.from(new Set(selectedProducts.map(p => p.unit_name).filter(Boolean)))
           
           let localCats: any[] = []
-          let localUnits: any[] = []
 
           if (categoriesToClone.length > 0) {
-              const { data, error: catError } = await supabase.from('categories').insert(categoriesToClone.map(name => ({ name, organization_id: organization.id }))).select()
+              const { data, error: catError } = await supabase.from('categories')
+                  .insert(categoriesToClone.map(name => ({ name, organization_id: organization.id })))
+                  .select()
               if (catError) throw new Error("Categories Error: " + catError.message)
               if (data) localCats = data
           }
+          
+          // 3. Clone Units into your local units table
           if (unitsToClone.length > 0) {
-              const { data, error: unitError } = await supabase.from('units').insert(unitsToClone.map(name => ({ name, organization_id: organization.id }))).select()
+              const { error: unitError } = await supabase.from('units')
+                  .insert(unitsToClone.map(name => ({ name, organization_id: organization.id })))
               if (unitError) throw new Error("Units Error: " + unitError.message)
-              if (data) localUnits = data
           }
 
-          // 3. Insert the Configured Materials
+          // 4. Insert the Materials exactly matching your schema
           const materialsToInsert = selectedProducts.map(prod => {
               const config = productConfigs[prod.id] || {}
               const catId = localCats.find(c => c.name === prod.category_name)?.id
-              const unitId = localUnits.find(u => u.name === prod.unit_name)?.id
               const locId = newLocs?.find(l => l.name === config.locationName)?.id
 
               return {
                   organization_id: organization.id,
                   name: prod.name,
                   category_id: catId || null,
-                  unit_id: unitId || null,
+                  unit: prod.unit_name || null, // Your material schema uses text for units!
                   default_location_id: locId || null,
                   is_mrp_enabled: config.is_mrp_enabled || false,
-                  min_stock_level: config.is_mrp_enabled ? (config.min_stock || 0) : 0,
-                  reorder_quantity: config.is_mrp_enabled ? (config.reorder_qty || 0) : 0,
-                  current_stock: 0
+                  reorder_point: config.is_mrp_enabled ? (config.min_stock || 0) : null,
+                  lot_quantity: config.is_mrp_enabled ? (config.reorder_qty || 0) : null,
+                  active: true
               }
           })
 
@@ -227,7 +230,7 @@ export default function Dashboard() {
                                         {conf.is_mrp_enabled && (
                                             <>
                                                 <div>
-                                                    <label className="text-[9px] font-black text-green-500 uppercase tracking-widest block mb-1">Min Stock</label>
+                                                    <label className="text-[9px] font-black text-green-500 uppercase tracking-widest block mb-1">Reorder Point</label>
                                                     <input type="number" min="0" className="w-full bg-gray-900 border border-green-900/50 focus:border-green-500 p-3 rounded-xl outline-none text-xs font-bold" placeholder="e.g. 2" value={conf.min_stock || ''} onChange={e => updateConfig(prod.id, 'min_stock', parseInt(e.target.value))} />
                                                 </div>
                                                 <div>
@@ -255,7 +258,7 @@ export default function Dashboard() {
     )
   }
 
-  // --- THE TRUE DASHBOARD ---
+  // --- THE COMMAND CENTER DASHBOARD ---
   return (
     <div className="p-4 md:p-8 text-white max-w-7xl mx-auto font-sans space-y-8 animate-in fade-in duration-500">
         <div className="flex items-center gap-4 border-b border-gray-800 pb-6">
@@ -267,12 +270,7 @@ export default function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            
-            {/* Quick Action: Materials */}
-            <button 
-                onClick={() => router.push('/materials')}
-                className="bg-gray-900 p-8 rounded-[2.5rem] border border-gray-800 flex flex-col items-center justify-center text-center cursor-pointer hover:border-purple-500 hover:bg-purple-500/5 transition-all group shadow-xl"
-            >
+            <button onClick={() => router.push('/materials')} className="bg-gray-900 p-8 rounded-[2.5rem] border border-gray-800 flex flex-col items-center justify-center text-center cursor-pointer hover:border-purple-500 hover:bg-purple-500/5 transition-all group shadow-xl">
                 <div className="w-16 h-16 bg-purple-500/20 rounded-3xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                     <Plus size={32} className="text-purple-500" />
                 </div>
@@ -280,11 +278,7 @@ export default function Dashboard() {
                 <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-2">{stats.totalItems} Items Tracked</p>
             </button>
 
-            {/* Quick Action: Stock Count */}
-            <button 
-                onClick={() => router.push('/inventory')}
-                className="bg-gray-900 p-8 rounded-[2.5rem] border border-gray-800 flex flex-col items-center justify-center text-center cursor-pointer hover:border-blue-500 hover:bg-blue-500/5 transition-all group shadow-xl"
-            >
+            <button onClick={() => router.push('/inventory')} className="bg-gray-900 p-8 rounded-[2.5rem] border border-gray-800 flex flex-col items-center justify-center text-center cursor-pointer hover:border-blue-500 hover:bg-blue-500/5 transition-all group shadow-xl">
                 <div className="w-16 h-16 bg-blue-500/20 rounded-3xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                     <BarChart size={32} className="text-blue-500" />
                 </div>
@@ -292,7 +286,6 @@ export default function Dashboard() {
                 <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-2">Log Transactions</p>
             </button>
 
-            {/* Status Card: Low Stock */}
             <div className={`p-8 rounded-[2.5rem] border flex flex-col items-center justify-center text-center shadow-xl ${stats.lowStock > 0 ? 'bg-red-500/10 border-red-500/50' : 'bg-gray-900 border-gray-800'}`}>
                 <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-4 ${stats.lowStock > 0 ? 'bg-red-500/20' : 'bg-green-500/20'}`}>
                     {stats.lowStock > 0 ? <AlertTriangle size={32} className="text-red-500" /> : <Check size={32} className="text-green-500" />}
@@ -301,10 +294,9 @@ export default function Dashboard() {
                     {stats.lowStock > 0 ? 'Action Required' : 'All Stock Healthy'}
                 </h3>
                 <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-2">
-                    {stats.lowStock} Items Below Min. Level
+                    {stats.lowStock} Items Below Reorder Point
                 </p>
             </div>
-            
         </div>
     </div>
   )
