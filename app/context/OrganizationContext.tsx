@@ -84,10 +84,16 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
     return () => authListener.subscription.unsubscribe()
   }, [pathname, router])
 
-  // Save selection to local storage so it survives page reloads
+  // Save selection to local storage and zip them to the dashboard!
   const handleSetOrganization = (org: any) => {
       setOrganization(org)
-      if (org) localStorage.setItem('activeOrgId', org.id)
+      if (org) {
+          localStorage.setItem('activeOrgId', org.id)
+          // Teleport them to the dashboard when they switch buildings
+          if (pathname !== '/') {
+              router.push('/')
+          }
+      }
   }
 
   // Show a loading screen while we verify permissions (unless on login page)
