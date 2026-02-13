@@ -2,11 +2,13 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useOrganization } from './context/OrganizationContext'
-import { Castle, Zap, Plus, ArrowRight, Check, Package, MapPin, BarChart } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Castle, Zap, Plus, ArrowRight, Check, Package, MapPin, BarChart, AlertTriangle } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
 export default function Dashboard() {
+  const router = useRouter()
   const { organization } = useOrganization()
   
   const [hasData, setHasData] = useState<boolean | null>(null)
@@ -20,9 +22,10 @@ export default function Dashboard() {
   // User Selections
   const [selectedLocs, setSelectedLocs] = useState<string[]>([])
   const [selectedProducts, setSelectedProducts] = useState<any[]>([])
-  
-  // The Deep Config (Mapping product ID to user's personal settings)
   const [productConfigs, setProductConfigs] = useState<Record<string, any>>({})
+
+  // Dashboard Stats
+  const [stats, setStats] = useState({ totalItems: 0, lowStock: 0 })
 
   useEffect(() => {
     async function init() {
@@ -32,10 +35,11 @@ export default function Dashboard() {
       
       if (count && count > 0) {
           setHasData(true)
+          fetchDashboardStats()
       } else {
           setHasData(false)
           setStep(1) // Start Wizard
-          // Fetch the Global Dictionaries
+          
           const { data: locs } = await supabase.from('global_locations').select('*')
           const { data: prods } = await supabase.from('global_products').select('*')
           if (locs) setGlobalLocs(locs)
@@ -45,11 +49,27 @@ export default function Dashboard() {
     init()
   }, [organization])
 
-  // Toggle selection helpers
+  const fetchDashboardStats = async () => {
+      // Get Total Items
+      const { count: total } = await supabase.from('materials').select('*', { count: 'exact', head: true }).eq('organization_id', organization.id)
+      
+      // Get Low Stock Items (Current Stock <= Min Stock AND MRP is enabled)
+      const { data: lowStockData } = await supabase.from('materials')
+          .select('id')
+          .eq('organization_id', organization.id)
+          .eq('is_mrp_enabled', true)
+          .lte('current_stock', 'min_stock_level') // Supabase filter for column comparison is tricky, doing simple fetch for now
+
+      // More reliable low stock calculation for the frontend
+      const { data: allItems } = await supabase.from('materials').select('*').eq('organization_id', organization.id).eq('is_mrp_enabled', true)
+      const lowCount = allItems?.filter(item => item.current_stock <= item.min_stock_level).length || 0
+
+      setStats({ totalItems: total || 0, lowStock: lowCount })
+  }
+
   const toggleLoc = (name: string) => setSelectedLocs(prev => prev.includes(name) ? prev.filter(l => l !== name) : [...prev, name])
   const toggleProduct = (prod: any) => setSelectedProducts(prev => prev.find(p => p.id === prod.id) ? prev.filter(p => p.id !== prod.id) : [...prev, prod])
 
-  // Update deep config
   const updateConfig = (prodId: string, field: string, value: any) => {
       setProductConfigs(prev => ({
           ...prev,
@@ -60,58 +80,64 @@ export default function Dashboard() {
   // --- THE MASSIVE BULK INSERT ---
   const handleFinalizeSetup = async () => {
       setLoading(true)
-      
-      // 1. Clone Locations
-      const { data: newLocs } = await supabase.from('locations')
-          .insert(selectedLocs.map(name => ({ name, organization_id: organization.id })))
-          .select()
+      try {
+          // 1. Clone Locations
+          const { data: newLocs, error: locError } = await supabase.from('locations')
+              .insert(selectedLocs.map(name => ({ name, organization_id: organization.id })))
+              .select()
+          if (locError) throw new Error("Locations Error: " + locError.message)
 
-      // 2. Clone Categories & Units (Only the ones attached to the selected products)
-      const categoriesToClone = Array.from(new Set(selectedProducts.map(p => p.category_name).filter(Boolean)))
-      const unitsToClone = Array.from(new Set(selectedProducts.map(p => p.unit_name).filter(Boolean)))
-      
-      let localCats: any[] = []
-      let localUnits: any[] = []
-
-      if (categoriesToClone.length > 0) {
-          const { data } = await supabase.from('categories').insert(categoriesToClone.map(name => ({ name, organization_id: organization.id }))).select()
-          if (data) localCats = data
-      }
-      if (unitsToClone.length > 0) {
-          const { data } = await supabase.from('units').insert(unitsToClone.map(name => ({ name, organization_id: organization.id }))).select()
-          if (data) localUnits = data
-      }
-
-      // 3. Insert the Configured Materials!
-      const materialsToInsert = selectedProducts.map(prod => {
-          const config = productConfigs[prod.id] || {}
+          // 2. Clone Categories & Units
+          const categoriesToClone = Array.from(new Set(selectedProducts.map(p => p.category_name).filter(Boolean)))
+          const unitsToClone = Array.from(new Set(selectedProducts.map(p => p.unit_name).filter(Boolean)))
           
-          // Match the cloned category/unit IDs
-          const catId = localCats.find(c => c.name === prod.category_name)?.id
-          const unitId = localUnits.find(u => u.name === prod.unit_name)?.id
-          
-          // Match the location name they selected in the dropdown to the newly created location ID
-          const locId = newLocs?.find(l => l.name === config.locationName)?.id
+          let localCats: any[] = []
+          let localUnits: any[] = []
 
-          return {
-              organization_id: organization.id,
-              name: prod.name,
-              category_id: catId,
-              unit_id: unitId,
-              default_location_id: locId,
-              is_mrp_enabled: config.is_mrp_enabled || false,
-              min_stock_level: config.is_mrp_enabled ? (config.min_stock || 0) : 0,
-              reorder_quantity: config.is_mrp_enabled ? (config.reorder_qty || 0) : 0,
-              current_stock: 0
+          if (categoriesToClone.length > 0) {
+              const { data, error: catError } = await supabase.from('categories').insert(categoriesToClone.map(name => ({ name, organization_id: organization.id }))).select()
+              if (catError) throw new Error("Categories Error: " + catError.message)
+              if (data) localCats = data
           }
-      })
+          if (unitsToClone.length > 0) {
+              const { data, error: unitError } = await supabase.from('units').insert(unitsToClone.map(name => ({ name, organization_id: organization.id }))).select()
+              if (unitError) throw new Error("Units Error: " + unitError.message)
+              if (data) localUnits = data
+          }
 
-      if (materialsToInsert.length > 0) {
-          await supabase.from('materials').insert(materialsToInsert)
+          // 3. Insert the Configured Materials
+          const materialsToInsert = selectedProducts.map(prod => {
+              const config = productConfigs[prod.id] || {}
+              const catId = localCats.find(c => c.name === prod.category_name)?.id
+              const unitId = localUnits.find(u => u.name === prod.unit_name)?.id
+              const locId = newLocs?.find(l => l.name === config.locationName)?.id
+
+              return {
+                  organization_id: organization.id,
+                  name: prod.name,
+                  category_id: catId || null,
+                  unit_id: unitId || null,
+                  default_location_id: locId || null,
+                  is_mrp_enabled: config.is_mrp_enabled || false,
+                  min_stock_level: config.is_mrp_enabled ? (config.min_stock || 0) : 0,
+                  reorder_quantity: config.is_mrp_enabled ? (config.reorder_qty || 0) : 0,
+                  current_stock: 0
+              }
+          })
+
+          if (materialsToInsert.length > 0) {
+              const { error: matError } = await supabase.from('materials').insert(materialsToInsert)
+              if (matError) throw new Error("Materials Error: " + matError.message)
+          }
+
+          setHasData(true)
+          fetchDashboardStats()
+      } catch (err: any) {
+          console.error(err)
+          alert("Setup Failed: " + err.message)
+      } finally {
+          setLoading(false)
       }
-
-      setHasData(true)
-      setLoading(false)
   }
 
   if (hasData === null) return null 
@@ -183,8 +209,6 @@ export default function Dashboard() {
                                 <div key={prod.id} className="bg-black border border-gray-800 p-6 rounded-3xl space-y-4">
                                     <div className="flex justify-between items-center border-b border-gray-800 pb-4">
                                         <h3 className="font-bold text-lg">{prod.name}</h3>
-                                        
-                                        {/* MRP OPT-IN TOGGLE */}
                                         <label className="flex items-center gap-2 cursor-pointer">
                                             <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">MRP Rules</span>
                                             <input type="checkbox" className="w-4 h-4 accent-green-500" checked={conf.is_mrp_enabled || false} onChange={e => updateConfig(prod.id, 'is_mrp_enabled', e.target.checked)} />
@@ -192,7 +216,6 @@ export default function Dashboard() {
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                        {/* Home Location Dropdown */}
                                         <div className={conf.is_mrp_enabled ? "col-span-1" : "col-span-3"}>
                                             <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1">Home Location</label>
                                             <select className="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl outline-none text-xs font-bold" value={conf.locationName || ''} onChange={e => updateConfig(prod.id, 'locationName', e.target.value)}>
@@ -201,11 +224,10 @@ export default function Dashboard() {
                                             </select>
                                         </div>
 
-                                        {/* Dynamic MRP Fields */}
                                         {conf.is_mrp_enabled && (
                                             <>
                                                 <div>
-                                                    <label className="text-[9px] font-black text-green-500 uppercase tracking-widest block mb-1">Min Stock (ROP)</label>
+                                                    <label className="text-[9px] font-black text-green-500 uppercase tracking-widest block mb-1">Min Stock</label>
                                                     <input type="number" min="0" className="w-full bg-gray-900 border border-green-900/50 focus:border-green-500 p-3 rounded-xl outline-none text-xs font-bold" placeholder="e.g. 2" value={conf.min_stock || ''} onChange={e => updateConfig(prod.id, 'min_stock', parseInt(e.target.value))} />
                                                 </div>
                                                 <div>
@@ -235,15 +257,54 @@ export default function Dashboard() {
 
   // --- THE TRUE DASHBOARD ---
   return (
-    <div className="p-8 text-white max-w-7xl mx-auto font-sans">
-        <h1 className="text-3xl font-black uppercase tracking-tighter mb-8">Command Center</h1>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-gray-900 p-6 rounded-3xl border border-gray-800 flex flex-col items-center justify-center text-center cursor-pointer hover:border-purple-500 transition-colors group">
-                <div className="w-12 h-12 bg-purple-500/20 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                    <Plus size={24} className="text-purple-500" />
-                </div>
-                <h3 className="font-bold text-sm uppercase tracking-widest">Add Custom Item</h3>
+    <div className="p-4 md:p-8 text-white max-w-7xl mx-auto font-sans space-y-8 animate-in fade-in duration-500">
+        <div className="flex items-center gap-4 border-b border-gray-800 pb-6">
+            <Castle size={32} className="text-purple-500" />
+            <div>
+                <h1 className="text-3xl font-black uppercase tracking-tighter italic">Keep Command</h1>
+                <p className="text-gray-500 font-bold text-[10px] uppercase tracking-widest">Active Workspace: {organization?.name}</p>
             </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            
+            {/* Quick Action: Materials */}
+            <button 
+                onClick={() => router.push('/materials')}
+                className="bg-gray-900 p-8 rounded-[2.5rem] border border-gray-800 flex flex-col items-center justify-center text-center cursor-pointer hover:border-purple-500 hover:bg-purple-500/5 transition-all group shadow-xl"
+            >
+                <div className="w-16 h-16 bg-purple-500/20 rounded-3xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                    <Plus size={32} className="text-purple-500" />
+                </div>
+                <h3 className="font-black text-sm uppercase tracking-widest">Master Data</h3>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-2">{stats.totalItems} Items Tracked</p>
+            </button>
+
+            {/* Quick Action: Stock Count */}
+            <button 
+                onClick={() => router.push('/inventory')}
+                className="bg-gray-900 p-8 rounded-[2.5rem] border border-gray-800 flex flex-col items-center justify-center text-center cursor-pointer hover:border-blue-500 hover:bg-blue-500/5 transition-all group shadow-xl"
+            >
+                <div className="w-16 h-16 bg-blue-500/20 rounded-3xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                    <BarChart size={32} className="text-blue-500" />
+                </div>
+                <h3 className="font-black text-sm uppercase tracking-widest">Update Inventory</h3>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-2">Log Transactions</p>
+            </button>
+
+            {/* Status Card: Low Stock */}
+            <div className={`p-8 rounded-[2.5rem] border flex flex-col items-center justify-center text-center shadow-xl ${stats.lowStock > 0 ? 'bg-red-500/10 border-red-500/50' : 'bg-gray-900 border-gray-800'}`}>
+                <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-4 ${stats.lowStock > 0 ? 'bg-red-500/20' : 'bg-green-500/20'}`}>
+                    {stats.lowStock > 0 ? <AlertTriangle size={32} className="text-red-500" /> : <Check size={32} className="text-green-500" />}
+                </div>
+                <h3 className={`font-black text-sm uppercase tracking-widest ${stats.lowStock > 0 ? 'text-red-500' : 'text-green-500'}`}>
+                    {stats.lowStock > 0 ? 'Action Required' : 'All Stock Healthy'}
+                </h3>
+                <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-2">
+                    {stats.lowStock} Items Below Min. Level
+                </p>
+            </div>
+            
         </div>
     </div>
   )
