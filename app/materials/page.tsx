@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
 import { useOrganization } from '../context/OrganizationContext'
-import { Package, Plus, Search, MoreVertical, Edit2, Trash2, Ban, ArrowLeftRight, ClipboardList, Shield } from 'lucide-react'
+import { Package, Plus, Search, MoreVertical, Edit2, Trash2, Ban, ArrowLeftRight, ClipboardList, Shield, AlertCircle, CheckCircle2 } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
@@ -38,14 +38,20 @@ export default function GoodsPage() {
     return loc ? loc.name : 'Unknown'
   }
 
-  const handleDelete = async (e: React.MouseEvent, id: string, name: string) => {
+  // Strict Delete Handler
+  const handleDelete = async (e: React.MouseEvent, id: string, name: string, currentStock: number) => {
     e.stopPropagation()
     
-    // 1. Pre-flight check: Does this item have a transaction history?
+    if (currentStock > 0) {
+      alert(`BLOCKED: "${name}" currently has ${currentStock} in stock.\n\nYou cannot delete an item while it exists in the Keep.`)
+      return
+    }
+
+    // Pre-flight check: Does this item have a transaction history?
     const { data: history } = await supabase.from('inventory_transactions').select('id').eq('material_id', id).limit(1)
     
     if (history && history.length > 0) {
-      alert(`BLOCKED: "${name}" has existing transaction history or stock counts.\n\nTo force a cascade delete, you must open the Item Master Edit page.`)
+      alert(`BLOCKED: "${name}" has an existing transaction ledger.\n\nTo force a cascade delete, you must open the Item Master Edit page.`)
       return
     }
 
@@ -56,23 +62,43 @@ export default function GoodsPage() {
     else setGoods(goods.filter(g => g.material_id !== id))
   }
 
-  const handleToggleActive = async (e: React.MouseEvent, id: string, currentState: boolean) => {
+  // Strict Active/Inactive Toggle Handler
+  const handleToggleActive = async (e: React.MouseEvent, id: string, currentState: boolean, currentStock: number) => {
     e.stopPropagation()
-    // Note: This requires an 'is_active' boolean column on your materials table
+    
+    // Don't let them hide an item if it's currently on the shelf
+    if (currentState === true && currentStock > 0) {
+      alert(`BLOCKED: You cannot flag an item as Inactive while you still have ${currentStock} in stock.`)
+      return
+    }
+
     const { error } = await supabase.from('materials').update({ is_active: !currentState }).eq('id', id)
-    if (error) alert(error.message)
-    else alert(`Item flagged as ${!currentState ? 'Active' : 'Inactive'}.`)
+    if (error) {
+      alert(error.message)
+    } else {
+      // Update local state to reflect the change instantly
+      setGoods(goods.map(g => g.material_id === id ? { ...g, is_active: !currentState } : g))
+    }
   }
 
   const filteredGoods = goods.filter(g => g.name.toLowerCase().includes(searchTerm.toLowerCase()))
 
-  if (loading) return null // Or your loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-purple-500">
+        <div className="animate-pulse flex flex-col items-center gap-4">
+          <Shield size={40} />
+          <p className="text-xs font-black uppercase tracking-widest text-gray-500">Loading Master Record...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans">
       <div className="max-w-7xl mx-auto space-y-8">
         
-        {/* HEADER & SEARCH BAR... (Same as before) */}
+        {/* HEADER & SEARCH BAR */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-800 pb-6">
           <div>
             <h1 className="text-4xl font-black uppercase tracking-tighter italic text-gray-100 mb-1">The Goods</h1>
@@ -98,61 +124,81 @@ export default function GoodsPage() {
         {/* DATA TABLE */}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden shadow-2xl pb-24">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-left border-collapse whitespace-nowrap">
               <thead>
                 <tr className="bg-black/50 border-b border-gray-800">
-                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500">Item Name</th>
+                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500">Name</th>
                   <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 hidden sm:table-cell">Category</th>
-                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 hidden md:table-cell">Default Store</th>
-                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 text-center">MRP</th>
-                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 text-right">In Stock</th>
+                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 hidden lg:table-cell">Unit</th>
+                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 hidden md:table-cell">Default Loc</th>
+                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 text-right">In Stock Qty</th>
+                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 text-center">Low Stock</th>
+                  <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 text-center">Status</th>
                   <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-500 text-center w-16">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {filteredGoods.map((item) => (
-                  <tr 
-                    key={item.material_id} 
-                    onClick={() => router.push(`/materials/${item.material_id}`)}
-                    className="hover:bg-gray-800/50 transition-colors group cursor-pointer"
-                  >
-                   
-                    <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        <p className={`font-bold text-sm transition-colors ${item.is_active === false ? 'text-gray-600 line-through' : 'text-gray-200 group-hover:text-purple-400'}`}>
-                          {item.name}
-                        </p>
-                        {item.is_active === false && (
-                          <span className="text-[8px] font-black uppercase tracking-widest bg-red-950 text-red-500 px-2 py-0.5 rounded-md border border-red-900/50">
-                            Inactive
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    <td className="p-4 hidden sm:table-cell">
-                      <span className="text-xs font-bold text-gray-400 bg-black border border-gray-800 px-2 py-1 rounded-md">{item.category || 'None'}</span>
-                    </td>
-                    <td className="p-4 hidden md:table-cell text-xs font-bold text-gray-400">
-                      {getLocationName(item.default_location_id)}
-                    </td>
-                    <td className="p-4 text-center">
-                      <span className="text-xs font-black text-yellow-500">{item.reorder_point > 0 ? item.reorder_point : '-'}</span>
-                    </td>
-                    <td className="p-4 text-right">
-                      <p className="text-lg font-black tracking-tighter text-purple-400">{item.current_stock || 0}</p>
-                      <p className="text-[9px] font-black uppercase tracking-widest text-gray-600">{item.unit}</p>
-                    </td>
-                    <td className="p-4 text-center relative" onClick={e => e.stopPropagation()}>
-                       <ActionDropdown 
-                        item={item} 
-                        router={router} 
-                        onDelete={(e: React.MouseEvent) => handleDelete(e, item.material_id, item.name)} 
-                        onToggleActive={(e: React.MouseEvent) => handleToggleActive(e, item.material_id, item.is_active)}
-                      />
-                    </td>
+                {filteredGoods.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="p-8 text-center text-sm font-bold text-gray-500">No records found.</td>
                   </tr>
-                ))}
+                ) : (
+                  filteredGoods.map((item) => {
+                    const isLowStock = item.reorder_point > 0 && item.current_stock <= item.reorder_point
+                    
+                    return (
+                      <tr 
+                        key={item.material_id} 
+                        onClick={() => router.push(`/materials/${item.material_id}`)}
+                        className={`hover:bg-gray-800/50 transition-colors group cursor-pointer ${item.is_active === false ? 'opacity-50' : ''}`}
+                      >
+                        <td className="p-4">
+                          <p className={`font-bold text-sm transition-colors ${item.is_active === false ? 'text-gray-500 line-through' : 'text-gray-200 group-hover:text-purple-400'}`}>
+                            {item.name}
+                          </p>
+                        </td>
+                        <td className="p-4 hidden sm:table-cell">
+                          <span className="text-xs font-bold text-gray-400">{item.category || '-'}</span>
+                        </td>
+                        <td className="p-4 hidden lg:table-cell">
+                          <span className="text-xs font-bold text-gray-400 bg-black border border-gray-800 px-2 py-1 rounded-md">{item.unit || 'QTY'}</span>
+                        </td>
+                        <td className="p-4 hidden md:table-cell text-xs font-bold text-gray-400">
+                          {getLocationName(item.default_location_id)}
+                        </td>
+                        <td className="p-4 text-right">
+                          <p className="text-lg font-black tracking-tighter text-purple-400">{item.current_stock || 0}</p>
+                        </td>
+                        <td className="p-4 text-center">
+                          {isLowStock ? (
+                            <div className="flex justify-center"><AlertCircle size={16} className="text-yellow-500" /></div>
+                          ) : (
+                            <span className="text-gray-700">-</span>
+                          )}
+                        </td>
+                        <td className="p-4 text-center">
+                          {item.is_active === false ? (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest bg-red-950/50 text-red-500 px-2 py-1 rounded-md border border-red-900/50">
+                              <Ban size={10} /> Inactive
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest bg-green-950/30 text-green-500 px-2 py-1 rounded-md border border-green-900/30">
+                              <CheckCircle2 size={10} /> Active
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-4 text-center relative" onClick={e => e.stopPropagation()}>
+                           <ActionDropdown 
+                              item={item} 
+                              router={router} 
+                              onDelete={(e: React.MouseEvent) => handleDelete(e, item.material_id, item.name, item.current_stock || 0)} 
+                              onToggleActive={(e: React.MouseEvent) => handleToggleActive(e, item.material_id, item.is_active, item.current_stock || 0)}
+                           />
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -195,7 +241,6 @@ function ActionDropdown({ item, router, onDelete, onToggleActive }: any) {
             
             <div className="border-t border-gray-800 my-1"></div>
             
-            {/* Dynamic Active/Inactive Toggle */}
             <button onClick={(e) => { setIsOpen(false); onToggleActive(e) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-400 flex items-center gap-3">
               <Ban size={14} /> {item.is_active === false ? 'Flag Active' : 'Flag Inactive'}
             </button>
