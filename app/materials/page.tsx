@@ -48,7 +48,7 @@ export default function GoodsPage() {
     }
 
     // Pre-flight check: Does this item have a transaction history?
-    const { data: history } = await supabase.from('inventory_transactions').select('id').eq('material_id', id).limit(1)
+    const { data: history } = await supabase.from('inventory_movements').select('id').eq('material_id', id).limit(1)
     
     if (history && history.length > 0) {
       alert(`BLOCKED: "${name}" has an existing transaction ledger.\n\nTo force a cascade delete, you must open the Item Master Edit page.`)

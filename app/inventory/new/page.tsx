@@ -86,7 +86,7 @@ function TransactionFormContent() {
       transaction_date: new Date().toISOString()
     }
 
-    const { error } = await supabase.from('inventory_transactions').insert([payload])
+    const { error } = await supabase.from('inventory_movements').insert([payload])
 
     setSaving(false)
     if (error) {

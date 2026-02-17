@@ -51,7 +51,7 @@ function ItemMasterContent() {
         supabase.from('locations').select('*').eq('organization_id', organization.id),
         supabase.from('materials').select('*').eq('id', itemId).single(),
         supabase.from('view_current_stock').select('current_stock').eq('material_id', itemId).single(),
-        supabase.from('inventory_transactions').select('location_id, quantity').eq('material_id', itemId)
+        supabase.from('inventory_movements').select('location_id, quantity').eq('material_id', itemId)
       ])
 
       if (roleRes.data) setIsAdmin(['admin', 'owner'].includes(roleRes.data.role))
@@ -109,7 +109,7 @@ function ItemMasterContent() {
     if (!confirm(`CASCADE DANGER: Are you sure you want to force delete ${name}? This will permanently erase ALL transaction history for this item. This cannot be undone.`)) return
     
     // 1. Explicitly wipe transaction history first to satisfy foreign key constraints
-    await supabase.from('inventory_transactions').delete().eq('material_id', itemId)
+    await supabase.from('inventory_movements').delete().eq('material_id', itemId)
     
     // 2. Delete the actual material
     const { error } = await supabase.from('materials').delete().eq('id', itemId)
