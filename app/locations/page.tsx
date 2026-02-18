@@ -19,6 +19,7 @@ function StoresPageContent() {
       if (!organization) return
       setLoading(true)
 
+      // Aggregating SKU counts directly from the view for BI insights
       const { data, error } = await supabase
         .from('locations')
         .select(`*, stock_count: view_stock_by_location(count)`)
@@ -34,11 +35,13 @@ function StoresPageContent() {
   const handleDelete = async (e: React.MouseEvent, id: string, name: string, stockCount: number) => {
     e.stopPropagation()
     
+    // Physical Integrity Lock: Prevent deleting stores with active goods
     if (stockCount > 0) {
       alert(`BLOCKED: "${name}" currently holds active inventory.\n\nYou cannot demolish a store while goods are inside.`)
       return
     }
 
+    // Ledger Integrity Lock: Prevent deleting stores with historical movements
     const { data: history } = await supabase.from('inventory_movements').select('id').eq('location_id', id).limit(1)
     if (history && history.length > 0) {
       alert(`BLOCKED: "${name}" is referenced in the transaction ledger.\n\nTo force a cascade delete, open the Store Dossier Edit page.`)
@@ -52,12 +55,16 @@ function StoresPageContent() {
     else setStores(stores.filter(s => s.id !== id))
   }
 
-  const filteredStores = stores.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase())).sort((a,b)=>{const countA = a.stock_count?.[0]?.count || 0
+  // Sort logic: Highest unique SKU count at the top
+  const filteredStores = stores
+    .filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    .sort((a, b) => {
+      const countA = a.stock_count?.[0]?.count || 0
       const countB = b.stock_count?.[0]?.count || 0
-      return countB - countA // Highest count first
+      return countB - countA
     })
 
-  if (loading) return <div className="min-h-screen bg-black flex items-center justify-center text-purple-500 font-black uppercase tracking-widest">Opening Vault...</div>
+  if (loading) return <div className="min-h-screen bg-black flex items-center justify-center text-purple-500 font-black uppercase tracking-widest italic">Opening Vault...</div>
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
@@ -80,7 +87,7 @@ function StoresPageContent() {
         <div className="relative group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-purple-400 transition-colors" size={18} />
           <input 
-            placeholder="Search stores..." 
+            placeholder="Search physical stores..." 
             className="w-full bg-gray-900 border border-gray-800 p-4 pl-12 rounded-2xl outline-none focus:border-purple-500 transition-all font-bold text-sm text-gray-200"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -100,7 +107,7 @@ function StoresPageContent() {
               </thead>
               <tbody className="divide-y divide-gray-800">
                 {filteredStores.length === 0 ? (
-                  <tr><td colSpan={3} className="p-8 text-center text-sm font-bold text-gray-500">No stores found.</td></tr>
+                  <tr><td colSpan={3} className="p-8 text-center text-sm font-bold text-gray-500 italic">No stores detected in the current organization.</td></tr>
                 ) : (
                   filteredStores.map((store) => {
                     const stockCount = store.stock_count?.[0]?.count || 0
@@ -109,19 +116,19 @@ function StoresPageContent() {
                       <tr key={store.id} onClick={() => router.push(`/locations/${store.id}`)} className="hover:bg-gray-800/50 transition-colors group cursor-pointer">
                         <td className="p-5">
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg flex items-center justify-center border bg-blue-900/20 border-blue-500/30 text-blue-400">
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center border bg-blue-900/10 border-blue-500/20 text-blue-400">
                               <MapPin size={14} />
                             </div>
                             <div>
-                                <p className="font-black text-sm text-gray-200 group-hover:text-white transition-colors">{store.name}</p>
+                                <p className="font-black text-sm text-gray-200 group-hover:text-white transition-colors uppercase tracking-tight">{store.name}</p>
                                 <p className="text-[9px] uppercase tracking-widest text-gray-600">ID: {store.id.slice(0, 8)}</p>
                             </div>
                           </div>
                         </td>
                         <td className="p-5 text-right">
                           <div className="flex items-center justify-end gap-2">
-                             <Box size={14} className={stockCount > 0 ? "text-purple-500" : "text-gray-600"} />
-                             <p className={`text-lg font-black tracking-tighter ${stockCount > 0 ? "text-white" : "text-gray-600"}`}>{stockCount}</p>
+                             <Box size={14} className={stockCount > 0 ? "text-purple-500" : "text-gray-700"} />
+                             <p className={`text-lg font-black tracking-tighter ${stockCount > 0 ? "text-white" : "text-gray-700"}`}>{stockCount}</p>
                           </div>
                         </td>
                         <td className="p-5 text-center relative" onClick={e => e.stopPropagation()}>
@@ -152,11 +159,25 @@ function ActionDropdown({ store, router, onDelete }: any) {
         <>
           <div className="fixed inset-0" onClick={(e) => { e.stopPropagation(); setIsOpen(false) }}></div>
           <div className="absolute right-0 mt-2 w-48 bg-[#0f0f0f] border border-gray-800 rounded-2xl shadow-2xl py-2 overflow-hidden animate-in fade-in slide-in-from-top-2 z-20">
-            <button onClick={(e) => { e.stopPropagation(); router.push(`/locations/${store.id}?edit=true`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3"><Edit2 size={14} className="text-blue-500" /> Edit Store Data</button>
-            <button onClick={(e) => { e.stopPropagation(); router.push(`/inventory?location_id=${store.id}`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3"><ArrowRightLeft size={14} className="text-purple-500" /> Process Goods</button>
-            <button onClick={(e) => { e.stopPropagation(); router.push(`/inventory/count?location_id=${store.id}`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3"><ClipboardCheck size={14} className="text-blue-500" /> Audit Store</button>
+            <button onClick={(e) => { e.stopPropagation(); router.push(`/locations/${store.id}?edit=true`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3">
+              <Edit2 size={14} className="text-blue-500" /> Edit Store Data
+            </button>
+            
+            {/* Contextual Deep Link to Transaction Engine */}
+            <button onClick={(e) => { e.stopPropagation(); router.push(`/inventory?location_id=${store.id}`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3">
+              <ArrowRightLeft size={14} className="text-purple-500" /> Process Goods
+            </button>
+
+            {/* Contextual Deep Link to Audit Tool */}
+            <button onClick={(e) => { e.stopPropagation(); router.push(`/inventory/count?location_id=${store.id}`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3">
+              <ClipboardCheck size={14} className="text-blue-400" /> Audit Store
+            </button>
+
             <div className="border-t border-gray-800 my-1"></div>
-            <button onClick={(e) => { setIsOpen(false); onDelete(e) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-red-950/50 hover:text-red-400 transition-colors text-red-500 flex items-center gap-3"><Trash2 size={14} /> Demolish</button>
+            
+            <button onClick={(e) => { setIsOpen(false); onDelete(e) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-red-950/50 hover:text-red-400 transition-colors text-red-500 flex items-center gap-3">
+              <Trash2 size={14} /> Demolish Store
+            </button>
           </div>
         </>
       )}
