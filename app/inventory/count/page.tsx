@@ -29,7 +29,7 @@ function CountEngineContent() {
       setLoading(true)
       const [locRes, matRes] = await Promise.all([
         supabase.from('locations').select('*').eq('organization_id', organization.id).order('name'),
-        // GLOBAL + LOCAL FETCH
+        // CORRECTED QUERY: Explicitly handle OR logic for Shared items
         supabase.from('materials').select('*').or(`organization_id.eq.${organization.id},organization_id.is.null`).eq('is_active', true).order('name')
       ])
       if (locRes.data) setLocations(locRes.data)
