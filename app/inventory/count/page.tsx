@@ -3,7 +3,7 @@ import { useEffect, useState, Suspense } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../../context/OrganizationContext'
-import { ClipboardCheck, MapPin, Save, Box, Search, Package, PlusCircle } from 'lucide-react'
+import { ClipboardCheck, MapPin, Search, PlusCircle } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
@@ -18,6 +18,7 @@ function CountEngineContent() {
   const [locations, setLocations] = useState<any[]>([])
   const [materials, setMaterials] = useState<any[]>([])
   const [locationId, setLocationId] = useState(defaultLocId || '')
+  
   const [expectedStock, setExpectedStock] = useState<any[]>([])
   const [counts, setCounts] = useState<Record<string, string>>({})
   const [searchTerm, setSearchTerm] = useState('')
@@ -28,6 +29,7 @@ function CountEngineContent() {
       setLoading(true)
       const [locRes, matRes] = await Promise.all([
         supabase.from('locations').select('*').eq('organization_id', organization.id).order('name'),
+        // GLOBAL + LOCAL FETCH
         supabase.from('materials').select('*').or(`organization_id.eq.${organization.id},organization_id.is.null`).eq('is_active', true).order('name')
       ])
       if (locRes.data) setLocations(locRes.data)
@@ -62,29 +64,52 @@ function CountEngineContent() {
   const handleSubmit = async () => {
     if (!locationId) return
     const adjustments: any[] = []
+    
     expectedStock.forEach(item => {
-      const actual = parseFloat(counts[item.material_id] || '0')
+      const actualRaw = counts[item.material_id]
+      if (actualRaw === '' || actualRaw === undefined) return
+      
+      const actual = parseFloat(actualRaw)
       const delta = actual - item.quantity
+      
       if (delta !== 0) {
-        adjustments.push({ organization_id: organization.id, material_id: item.material_id, location_id: locationId, quantity: delta, movement_type: delta > 0 ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT', notes: `Audit Reconciliation (Count: ${actual}, Ledger: ${item.quantity})` })
+        adjustments.push({ 
+          organization_id: organization.id, 
+          material_id: item.material_id, 
+          location_id: locationId, 
+          quantity: delta, 
+          movement_type: delta > 0 ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT', 
+          notes: `Audit: Found ${actual}, Expected ${item.quantity}` 
+        })
       }
     })
-    if (adjustments.length === 0) return alert("System matches physical stock. No adjustments needed.")
+
+    if (adjustments.length === 0) return alert("All counts match expected stock. No changes needed.")
+
     setSaving(true)
     const { error } = await supabase.from('inventory_movements').insert(adjustments)
     setSaving(false)
+
     if (error) alert(error.message)
     else router.push('/history')
   }
 
-  if (loading) return <div className="min-h-screen bg-black flex items-center justify-center text-purple-500 font-black tracking-widest uppercase">Opening Dossier...</div>
+  if (loading) return <div className="min-h-screen bg-black flex items-center justify-center text-purple-500 font-black tracking-widest uppercase">Opening Audit...</div>
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
       <div className="max-w-4xl mx-auto space-y-8">
+        
         <header className="border-b border-gray-800 pb-6 flex justify-between items-center">
-          <div><h1 className="text-4xl font-black uppercase italic tracking-tighter">Stock Audit</h1></div>
-          <button onClick={handleSubmit} disabled={saving || !locationId} className="bg-purple-600 px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg active:scale-95 disabled:opacity-50">COMMIT AUDIT</button>
+          <div>
+            <h1 className="text-4xl font-black uppercase italic tracking-tighter">Stock Audit</h1>
+            <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mt-1 flex items-center gap-2">
+               <ClipboardCheck size={12} className="text-purple-500" /> Cycle Count
+            </p>
+          </div>
+          <button onClick={handleSubmit} disabled={saving || !locationId} className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg active:scale-95">
+            {saving ? 'RECORDING...' : 'COMMIT AUDIT'}
+          </button>
         </header>
 
         <div className="bg-[#0f0f0f] border border-gray-800 p-6 rounded-[2.5rem] flex gap-6 items-center shadow-xl">
@@ -97,24 +122,21 @@ function CountEngineContent() {
 
         {locationId && (
           <div className="space-y-6">
-            <div className="flex flex-col md:flex-row gap-4 bg-[#0f0f0f] p-4 rounded-3xl border border-gray-800">
-              <div className="relative flex-1">
+            <div className="flex flex-col md:flex-row gap-4 bg-[#0f0f0f] p-4 rounded-3xl border border-gray-800 items-start">
+              <div className="relative flex-1 w-full">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
-                <input placeholder="Search current store stock..." className="w-full bg-black border border-gray-800 p-3 pl-12 rounded-xl text-xs font-bold outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                <input placeholder="Filter items..." className="w-full bg-black border border-gray-800 p-3 pl-12 rounded-xl text-xs font-bold outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
               </div>
               
-              {/* FIXED SELECT DROPDOWN */}
-              <div className="w-full md:w-64">
+              <div className="w-full md:w-72">
                 <select 
-                  className="w-full bg-purple-900/10 border border-purple-500/30 text-purple-400 p-3 rounded-xl text-[10px] font-black uppercase outline-none focus:border-purple-500"
+                  className="w-full bg-purple-900/10 border border-purple-500/30 text-purple-400 p-3 rounded-xl text-[10px] font-black uppercase outline-none focus:border-purple-500 appearance-none"
                   onChange={(e) => {
-                    if (e.target.value === "NEW_MASTER") window.open('/materials/new', '_blank');
-                    else if (e.target.value) handleAddZeroStockItem(e.target.value);
+                    if (e.target.value) handleAddZeroStockItem(e.target.value);
                     e.target.value = "";
                   }}
                 >
-                  <option value="" className="bg-gray-900 text-white">+ Found Unlisted Item</option>
-                  <option value="NEW_MASTER" className="bg-gray-900 text-purple-400 font-black italic">-- CREATE NEW MASTER DATA --</option>
+                  <option value="" className="bg-gray-900 text-white">+ Add Found Item (Not in List)</option>
                   {materials
                     .filter(m => !expectedStock.find(es => es.material_id === m.id))
                     .map(m => (
@@ -122,6 +144,9 @@ function CountEngineContent() {
                     ))
                   }
                 </select>
+                <button onClick={() => window.open('/materials/new', '_blank')} className="text-[9px] font-bold text-gray-500 hover:text-white mt-2 flex items-center gap-1 ml-1">
+                  <PlusCircle size={10} /> Create New Master Data
+                </button>
               </div>
             </div>
 
@@ -130,7 +155,7 @@ function CountEngineContent() {
                 <div key={item.material_id} className={`p-4 rounded-2xl border flex justify-between items-center transition-all ${item.isFound ? 'bg-purple-900/10 border-purple-500/50' : 'bg-[#0f0f0f] border-gray-800'}`}>
                   <div>
                     <h3 className="text-sm font-black uppercase tracking-tight text-gray-200">{item.material_name} {item.isFound && <span className="text-[8px] bg-purple-600 px-1.5 py-0.5 rounded ml-2">FOUND</span>}</h3>
-                    <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest mt-1">System Expected: {item.quantity}</p>
+                    <p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest mt-1">Expected: {item.quantity}</p>
                   </div>
                   <input type="number" step="any" value={counts[item.material_id] ?? ''} onChange={e => setCounts({...counts, [item.material_id]: e.target.value})} className="w-24 bg-black border border-gray-800 p-3 rounded-xl text-center font-black text-xl text-purple-400 outline-none focus:border-purple-500" />
                 </div>
