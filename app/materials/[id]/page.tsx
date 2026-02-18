@@ -3,7 +3,7 @@ import { useEffect, useState, Suspense } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../../context/OrganizationContext'
-import { ArrowLeft, Save, Trash2, Package, MapPin, Target, AlertTriangle, ArrowRightLeft, Edit2, X, Shield, FileText, ToggleLeft, ToggleRight, History, ArrowDownLeft, ArrowUpRight } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, Package, MapPin, Target, AlertTriangle, ArrowRightLeft, Edit2, X, ToggleLeft, ToggleRight, History, ArrowDownLeft, ArrowUpRight } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
@@ -52,7 +52,6 @@ function ItemMasterContent() {
         supabase.from('materials').select('*').eq('id', itemId).single(),
         supabase.from('view_current_stock').select('current_stock').eq('material_id', itemId).single(),
         supabase.from('view_stock_by_location').select('location_id, quantity').eq('material_id', itemId),
-        // Fetch recent history for this item
         supabase.from('inventory_movements').select('*, locations(name)').eq('material_id', itemId).order('created_at', { ascending: false }).limit(10)
       ])
 
@@ -160,9 +159,21 @@ function ItemMasterContent() {
                    {isEditing ? <textarea value={description} onChange={e => setDescription(e.target.value)} className="inpt h-24 resize-none" placeholder="Add details..." /> : <p className="val italic text-gray-500">{description || 'No description provided.'}</p>}</div>
                  <div className="grid grid-cols-2 gap-6">
                    <div><label className="lbl">Category</label>
-                     {isEditing ? <select value={categoryId} onChange={e => setCategoryId(e.target.value)} className="inpt"><option value="">Uncategorized</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select> : <p className="val">{displayCategory}</p>}</div>
+                     {isEditing ? (
+                        <select value={categoryId} onChange={e => setCategoryId(e.target.value)} className="inpt">
+                          <option value="" className="bg-gray-900 text-white">Uncategorized</option>
+                          {categories.map(c => <option key={c.id} value={c.id} className="bg-gray-900 text-white">{c.name}</option>)}
+                        </select>
+                     ) : <p className="val">{displayCategory}</p>}
+                   </div>
                    <div><label className="lbl">Unit of Measure</label>
-                     {isEditing ? <select value={unitId} onChange={e => setUnitId(e.target.value)} className="inpt"><option value="">No Unit Set</option>{units.map(u => <option key={u.id} value={u.id}>{u.name} ({u.abbreviation})</option>)}</select> : <p className="val">{displayUnit}</p>}</div>
+                     {isEditing ? (
+                        <select value={unitId} onChange={e => setUnitId(e.target.value)} className="inpt">
+                          <option value="" className="bg-gray-900 text-white">No Unit Set</option>
+                          {units.map(u => <option key={u.id} value={u.id} className="bg-gray-900 text-white">{u.name} ({u.abbreviation})</option>)}
+                        </select>
+                     ) : <p className="val">{displayUnit}</p>}
+                   </div>
                  </div>
                </div>
             </div>
@@ -171,12 +182,18 @@ function ItemMasterContent() {
                <div className="flex items-center gap-3 border-b border-gray-800/50 pb-4"><Target size={18} className="text-blue-500" /><h2 className="text-xs font-black uppercase tracking-widest text-gray-400">Logistics & Rules</h2></div>
                <div className="space-y-5">
                  <div><label className="lbl">Default Store</label>
-                   {isEditing ? <select value={locationId} onChange={e => setLocationId(e.target.value)} className="inpt"><option value="">No Default Store</option>{locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select> : <p className="val flex items-center gap-2"><MapPin size={14} className="text-gray-600"/> {displayLocation}</p>}</div>
+                   {isEditing ? (
+                      <select value={locationId} onChange={e => setLocationId(e.target.value)} className="inpt focus:border-blue-500">
+                        <option value="" className="bg-gray-900 text-white">No Default Store</option>
+                        {locations.map(l => <option key={l.id} value={l.id} className="bg-gray-900 text-white">{l.name}</option>)}
+                      </select>
+                   ) : <p className="val flex items-center gap-2"><MapPin size={14} className="text-gray-600"/> {displayLocation}</p>}
+                 </div>
                  <div className="grid grid-cols-2 gap-6">
                    <div><label className="lbl">Reorder Point (MRP)</label>
-                     {isEditing ? <input type="number" value={reorderPoint} onChange={e => setReorderPoint(e.target.value ==='' ? '' : Number(e.target.ariaValueNow))} className="inpt focus:border-yellow-500" placeholder="e.g. 5" /> : <p className={`val ${reorderPoint ? 'text-yellow-500' : 'text-gray-600'}`}>{reorderPoint || 'Not Set'}</p>}</div>
+                     {isEditing ? <input type="number" value={reorderPoint} onChange={e => setReorderPoint(e.target.value === '' ? '' : Number(e.target.value))} className="inpt focus:border-yellow-500" placeholder="e.g. 5" /> : <p className={`val ${reorderPoint !== '' ? 'text-yellow-500' : 'text-gray-600'}`}>{reorderPoint !== '' ? reorderPoint : 'Not Set'}</p>}</div>
                    <div><label className="lbl">Standard Lot Qty</label>
-                     {isEditing ? <input type="number" value={lotQuantity} onChange={e => setLotQuantity(e.target.value ==='' ? '' : Number(e.target.ariaValueNow))} className="inpt" placeholder="e.g. 12" /> : <p className="val">{lotQuantity || 'Not Set'}</p>}</div>
+                     {isEditing ? <input type="number" value={lotQuantity} onChange={e => setLotQuantity(e.target.value === '' ? '' : Number(e.target.value))} className="inpt focus:border-blue-500" placeholder="e.g. 12" /> : <p className="val">{lotQuantity !== '' ? lotQuantity : 'Not Set'}</p>}</div>
                  </div>
                </div>
             </div>
@@ -212,10 +229,12 @@ function ItemMasterContent() {
           <table className="w-full text-left text-xs">
             <tbody className="divide-y divide-gray-800/50">
               {recentHistory.length === 0 ? <tr><td className="p-6 text-center text-gray-600 font-bold italic">No recent activity.</td></tr> : recentHistory.map(mov => (
-                <tr key={mov.id} className="hover:bg-gray-800/30"><td className="p-4 text-gray-500 font-bold">{new Date(mov.created_at).toLocaleDateString()}</td>
+                <tr key={mov.id} className="hover:bg-gray-800/30">
+                  <td className="p-4 text-gray-500 font-bold">{new Date(mov.created_at).toLocaleDateString()}</td>
                   <td className="p-4"><span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[8px] font-black uppercase border ${mov.movement_type.includes('IN') ? 'bg-purple-900/20 text-purple-400 border-purple-500/30' : mov.movement_type.includes('TRANSFER') ? 'bg-blue-900/20 text-blue-400 border-blue-500/30' : 'bg-yellow-900/20 text-yellow-500 border-yellow-500/30'}`}>{mov.movement_type.includes('IN')?<ArrowDownLeft size={8}/>:mov.movement_type.includes('TRANSFER')?<ArrowRightLeft size={8}/>:<ArrowUpRight size={8}/>} {mov.movement_type.replace('_',' ')}</span></td>
                   <td className="p-4 text-gray-400 font-bold flex items-center gap-2"><MapPin size={12}/> {mov.locations?.name || 'Unassigned'}</td>
-                  <td className={`p-4 text-right font-black ${mov.quantity>0?'text-purple-400':'text-yellow-500'}`}>{mov.quantity>0?`+${mov.quantity}`:mov.quantity}</td></tr>
+                  <td className={`p-4 text-right font-black ${mov.quantity>0?'text-purple-400':'text-yellow-500'}`}>{mov.quantity>0?`+${mov.quantity}`:mov.quantity}</td>
+                </tr>
               ))}
             </tbody>
           </table>
