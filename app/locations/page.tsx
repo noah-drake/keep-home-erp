@@ -1,13 +1,13 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useOrganization } from '../context/OrganizationContext'
-import { MapPin, Plus, Search, MoreVertical, Edit2, Trash2, Shield, Box, ArrowRight } from 'lucide-react'
+import { MapPin, Plus, Search, MoreVertical, Edit2, Trash2, Box, ArrowRightLeft } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
-export default function StoresPage() {
+function StoresPageContent() {
   const router = useRouter()
   const { organization } = useOrganization()
   const [stores, setStores] = useState<any[]>([])
@@ -19,13 +19,9 @@ export default function StoresPage() {
       if (!organization) return
       setLoading(true)
 
-      // We join with view_stock_by_location to get a count of items in each store
       const { data, error } = await supabase
         .from('locations')
-        .select(`
-          *,
-          stock_count: view_stock_by_location(count)
-        `)
+        .select(`*, stock_count: view_stock_by_location(count)`)
         .eq('organization_id', organization.id)
         .order('name')
 
@@ -35,12 +31,33 @@ export default function StoresPage() {
     fetchStores()
   }, [organization])
 
+  const handleDelete = async (e: React.MouseEvent, id: string, name: string, stockCount: number) => {
+    e.stopPropagation()
+    
+    if (stockCount > 0) {
+      alert(`BLOCKED: "${name}" currently holds active inventory.\n\nYou cannot demolish a store while goods are inside.`)
+      return
+    }
+
+    const { data: history } = await supabase.from('inventory_movements').select('id').eq('location_id', id).limit(1)
+    if (history && history.length > 0) {
+      alert(`BLOCKED: "${name}" is referenced in the transaction ledger.\n\nTo force a cascade delete, open the Store Dossier Edit page.`)
+      return
+    }
+
+    if (!confirm(`Are you sure you want to demolish ${name}?`)) return
+    
+    const { error } = await supabase.from('locations').delete().eq('id', id)
+    if (error) alert(error.message)
+    else setStores(stores.filter(s => s.id !== id))
+  }
+
   const filteredStores = stores.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()))
 
   if (loading) return <div className="min-h-screen bg-black flex items-center justify-center text-purple-500 font-black uppercase tracking-widest">Opening Vault...</div>
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans">
+    <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
       <div className="max-w-7xl mx-auto space-y-8">
         
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-800 pb-6">
@@ -50,7 +67,7 @@ export default function StoresPage() {
               <MapPin size={12} className="text-purple-500" /> Physical Inventory Hubs
             </p>
           </div>
-          <button className="bg-purple-600 hover:bg-purple-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20 active:scale-95">
+          <button onClick={() => router.push('/locations/new')} className="bg-purple-600 hover:bg-purple-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20 active:scale-95">
             <Plus size={16} /> New Store
           </button>
         </header>
@@ -66,46 +83,77 @@ export default function StoresPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredStores.map((store) => (
-            <div key={store.id} className="bg-[#0f0f0f] border border-gray-800 p-6 rounded-[2.5rem] hover:border-purple-500/50 transition-all group relative overflow-hidden">
-              <div className="flex justify-between items-start mb-6">
-                <div className="w-12 h-12 bg-black border border-gray-800 rounded-2xl flex items-center justify-center text-purple-500 group-hover:scale-110 transition-transform">
-                  <MapPin size={24} />
-                </div>
-                <button className="p-2 text-gray-600 hover:text-white transition-colors">
-                  <MoreVertical size={18} />
-                </button>
-              </div>
+          {filteredStores.map((store) => {
+             const stockCount = store.stock_count?.[0]?.count || 0
 
-              <div className="space-y-1">
-                <h2 className="text-2xl font-black uppercase tracking-tight text-gray-200 group-hover:text-purple-400 transition-colors">{store.name}</h2>
-                <p className="text-[10px] font-black uppercase tracking-widest text-gray-600">ID: {store.id.slice(0, 8)}</p>
-              </div>
-
-              <div className="mt-8 pt-6 border-t border-gray-800/50 flex justify-between items-end">
+             return (
+              <div 
+                key={store.id} 
+                onClick={() => router.push(`/locations/${store.id}`)}
+                className="bg-[#0f0f0f] border border-gray-800 p-6 rounded-[2.5rem] hover:border-purple-500/50 cursor-pointer transition-all group relative overflow-hidden flex flex-col justify-between min-h-[220px]"
+              >
                 <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1">Unique SKUs</p>
-                  <div className="flex items-center gap-2">
-                    <Box size={14} className="text-purple-500" />
-                    <span className="text-2xl font-black tracking-tighter">{store.stock_count?.[0]?.count || 0}</span>
+                  <div className="flex justify-between items-start mb-6">
+                    <div className="w-12 h-12 bg-black border border-gray-800 rounded-2xl flex items-center justify-center text-purple-500 group-hover:scale-110 transition-transform">
+                      <MapPin size={24} />
+                    </div>
+                    <div onClick={e => e.stopPropagation()}>
+                      <ActionDropdown 
+                        store={store} 
+                        router={router} 
+                        onDelete={(e: React.MouseEvent) => handleDelete(e, store.id, store.name, stockCount)} 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <h2 className="text-2xl font-black uppercase tracking-tight text-gray-200 group-hover:text-purple-400 transition-colors">{store.name}</h2>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-600">ID: {store.id.slice(0, 8)}</p>
                   </div>
                 </div>
-                <button 
-                  onClick={() => router.push(`/inventory?location_id=${store.id}`)}
-                  className="p-3 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 hover:text-white hover:bg-purple-600 hover:border-purple-500 transition-all"
-                >
-                  <ArrowRight size={18} />
-                </button>
-              </div>
 
-              {/* Decorative background element */}
-              <div className="absolute -right-4 -bottom-4 opacity-[0.03] pointer-events-none group-hover:opacity-[0.07] transition-opacity">
-                <MapPin size={120} />
+                <div className="mt-8 pt-6 border-t border-gray-800/50 flex justify-between items-end">
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1">Unique SKUs Inside</p>
+                    <div className="flex items-center gap-2">
+                      <Box size={14} className={stockCount > 0 ? "text-purple-500" : "text-gray-600"} />
+                      <span className={`text-2xl font-black tracking-tighter ${stockCount > 0 ? "text-white" : "text-gray-600"}`}>{stockCount}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="absolute -right-4 -bottom-4 opacity-[0.02] pointer-events-none group-hover:opacity-[0.06] transition-opacity">
+                  <MapPin size={120} />
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
     </div>
   )
 }
+
+function ActionDropdown({ store, router, onDelete }: any) {
+  const [isOpen, setIsOpen] = useState(false)
+  return (
+    <div className="relative inline-block text-left z-10">
+      <button onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen) }} className="p-2 text-gray-500 hover:text-white rounded-lg hover:bg-gray-800 transition-colors">
+        <MoreVertical size={18} />
+      </button>
+      {isOpen && (
+        <>
+          <div className="fixed inset-0" onClick={(e) => { e.stopPropagation(); setIsOpen(false) }}></div>
+          <div className="absolute right-0 mt-2 w-48 bg-[#0f0f0f] border border-gray-800 rounded-2xl shadow-2xl py-2 overflow-hidden animate-in fade-in slide-in-from-top-2 z-20">
+            <button onClick={(e) => { e.stopPropagation(); router.push(`/locations/${store.id}?edit=true`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3"><Edit2 size={14} className="text-blue-500" /> Edit Store Data</button>
+            <button onClick={(e) => { e.stopPropagation(); router.push(`/inventory?location_id=${store.id}`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3"><ArrowRightLeft size={14} className="text-purple-500" /> Process Goods</button>
+            <div className="border-t border-gray-800 my-1"></div>
+            <button onClick={(e) => { setIsOpen(false); onDelete(e) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-red-950/50 hover:text-red-400 transition-colors text-red-500 flex items-center gap-3"><Trash2 size={14} /> Demolish</button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+export default function StoresPage() { return <Suspense fallback={<div className="min-h-screen bg-black" />}><StoresPageContent /></Suspense> }

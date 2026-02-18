@@ -1,84 +1,172 @@
 'use client'
+import { useEffect, useState, Suspense } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { useEffect, useState, use } from 'react'
-import Link from 'next/link'
-import { Package, ArrowLeft } from 'lucide-react'
+import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../../context/OrganizationContext'
+import { ArrowLeft, Save, Trash2, MapPin, Package, AlertTriangle, Edit2, X, Box } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
-export default function LocationItemsPage({ params }: { params: Promise<{ id: string }> }) {
+function StoreDossierContent() {
+  const router = useRouter()
+  const params = useParams()
+  const searchParams = useSearchParams()
+  const locId = params.id as string
   const { organization } = useOrganization()
-  const resolvedParams = use(params)
-  const locId = resolvedParams.id
-  
-  const [items, setItems] = useState<any[]>([])
-  const [locName, setLocName] = useState('')
+
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [isEditing, setIsEditing] = useState(searchParams.get('edit') === 'true')
+  const [isAdmin, setIsAdmin] = useState(false)
+  
+  // Data State
+  const [name, setName] = useState('')
+  const [items, setItems] = useState<any[]>([])
 
   useEffect(() => {
-    async function load() {
-      if (!organization) return
+    const fetchData = async () => {
+      if (!organization || !locId) return
+      setLoading(true)
+      const { data: { user } } = await supabase.auth.getUser()
       
-      // 1. Get Location Name
-      const { data: loc } = await supabase.from('locations').select('name').eq('id', locId).single()
-      if (loc) setLocName(loc.name)
+      const [roleRes, locRes, itemsRes] = await Promise.all([
+        user ? supabase.from('organization_members').select('role').eq('organization_id', organization.id).eq('user_id', user.id).single() : Promise.resolve({ data: null }),
+        supabase.from('locations').select('*').eq('id', locId).single(),
+        supabase.from('view_stock_by_location').select('*').eq('location_id', locId).gt('quantity', 0).order('material_name')
+      ])
 
-      // 2. Get all items in this location
-      const { data } = await supabase
-        .from('view_stock_by_location')
-        .select('*')
-        .eq('location_id', locId)
-        .gt('quantity', 0) // Only show things actually there
-
-      setItems(data || [])
+      if (roleRes.data) setIsAdmin(['admin', 'owner'].includes(roleRes.data.role))
+      if (locRes.data) setName(locRes.data.name)
+      if (itemsRes.data) setItems(itemsRes.data)
+      
       setLoading(false)
     }
-    load()
-  }, [locId, organization])
+    fetchData()
+  }, [organization, locId])
 
-  if (loading) return <div className="p-8 text-white animate-pulse">Scanning Shelves...</div>
+  const handleSave = async () => {
+    setSaving(true)
+    const { error } = await supabase.from('locations').update({ name }).eq('id', locId)
+    setSaving(false)
+    if (error) alert(error.message)
+    else { setIsEditing(false); router.replace(`/locations/${locId}`) }
+  }
+
+  const handleDelete = async () => {
+    if (!confirm(`CASCADE DANGER: Force demolish ${name}? This will permanently erase ALL transaction history referencing this location.`)) return
+    
+    // First, wipe history for this location to satisfy foreign keys
+    await supabase.from('inventory_movements').delete().eq('location_id', locId)
+    
+    const { error } = await supabase.from('locations').delete().eq('id', locId)
+    if (error) alert(error.message)
+    else router.push('/locations')
+  }
+
+  if (loading) return <div className="min-h-screen bg-black flex items-center justify-center text-purple-500 font-black uppercase tracking-widest">Loading Dossier...</div>
 
   return (
-    <div className="min-h-screen p-4 md:p-8 text-white max-w-5xl mx-auto">
-      <Link href="/locations" className="flex items-center gap-2 text-gray-500 hover:text-white mb-8 font-bold text-xs uppercase tracking-widest transition-colors">
-        <ArrowLeft size={14} /> Back to Locations
-      </Link>
-
-      <div className="mb-12">
-        <h1 className="text-5xl font-black uppercase tracking-tighter italic">{locName}</h1>
-        <p className="text-gray-500 font-bold text-[10px] uppercase tracking-widest mt-2">
-            Contents Inventory ({items.length} unique items)
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3">
-        {items.length === 0 ? (
-          <div className="bg-gray-900/30 border-2 border-dashed border-gray-800 p-20 rounded-[3rem] text-center text-gray-600 font-bold uppercase text-xs">
-            This location is currently empty.
+    <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
+      <div className="max-w-7xl mx-auto space-y-8">
+        
+        {/* HEADER */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-6 gap-4">
+          <div className="flex items-center gap-4">
+            <button onClick={() => router.push('/locations')} className="p-3 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 hover:text-white hover:border-purple-500 transition-all"><ArrowLeft size={20} /></button>
+            <div>
+              <h1 className="text-3xl font-black uppercase tracking-tighter italic text-gray-100 flex items-center gap-3">{name}</h1>
+              <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Store Master Dossier</p>
+            </div>
           </div>
-        ) : (
-          items.map(item => (
-            <Link key={item.material_id} href={`/materials/${item.material_id}`} className="group">
-                <div className="bg-gray-900/50 border border-gray-800 p-6 rounded-3xl flex justify-between items-center group-hover:border-purple-500 transition-all">
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-black rounded-2xl flex items-center justify-center text-purple-500 border border-gray-800">
-                            <Package size={20} />
-                        </div>
-                        <div>
-                            <h3 className="text-xl font-black uppercase tracking-tight group-hover:text-purple-400">{item.material_name}</h3>
-                            <span className="text-[10px] font-bold text-gray-500 uppercase">{item.category}</span>
-                        </div>
-                    </div>
-                    <div className="text-right">
-                        <span className="block text-[10px] font-black text-gray-600 uppercase">Current Qty</span>
-                        <span className="text-2xl font-black font-mono text-green-500">{item.quantity}</span>
-                    </div>
+          <div className="flex gap-3">
+             {isAdmin && !isEditing && <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 bg-gray-900 border border-gray-800 hover:bg-gray-800 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-white"><Edit2 size={14} /> Edit Store</button>}
+             {isEditing && (
+               <>
+                 <button onClick={() => { setIsEditing(false); router.replace(`/locations/${locId}`) }} className="flex items-center gap-2 bg-gray-900 border border-gray-800 hover:text-red-400 px-4 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-gray-400"><X size={14} /> Cancel</button>
+                 <button onClick={handleSave} disabled={saving} className="bg-purple-600 hover:bg-purple-500 px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg active:scale-95"><Save size={14} /> {saving ? 'Saving...' : 'Save File'}</button>
+               </>
+             )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          
+          {/* MAIN COLUMN (Identity & Actions) */}
+          <div className="space-y-6">
+            <div className={`bg-[#0f0f0f] border p-6 rounded-[2.5rem] space-y-6 transition-colors ${isEditing ? 'border-purple-500/50' : 'border-gray-800'}`}>
+               <div className="flex items-center gap-3 border-b border-gray-800/50 pb-4">
+                  <MapPin size={18} className="text-purple-500" />
+                  <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">Core Identity</h2>
+               </div>
+               <div>
+                 <label className="block text-[9px] font-black uppercase tracking-widest text-gray-600 mb-2">Store Name</label>
+                 {isEditing ? (
+                   <input value={name} onChange={e => setName(e.target.value)} className="w-full bg-black border border-gray-800 p-4 rounded-2xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200" />
+                 ) : (
+                   <p className="font-bold text-sm text-gray-200 bg-black/50 p-4 rounded-2xl border border-gray-800/50">{name}</p>
+                 )}
+               </div>
+            </div>
+
+            {isAdmin && isEditing && (
+              <div className="bg-red-950/10 border border-red-900/30 p-6 rounded-[2.5rem] space-y-4 animate-in fade-in slide-in-from-top-4">
+                <div className="flex items-center gap-2"><AlertTriangle size={14} className="text-red-500" /><h3 className="text-[10px] font-black uppercase tracking-widest text-red-500">Danger Zone</h3></div>
+                <p className="text-[10px] text-red-400/70 font-bold leading-relaxed uppercase tracking-widest">Permanent demolition of this store and its history.</p>
+                <button onClick={handleDelete} className="w-full bg-red-950/50 hover:bg-red-900 text-red-500 hover:text-white border border-red-900/50 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2"><Trash2 size={14} /> Demolish Store</button>
+              </div>
+            )}
+          </div>
+
+          {/* CONTENTS COLUMN */}
+          <div className="lg:col-span-2">
+            <div className="bg-[#0f0f0f] border border-gray-800 rounded-[2.5rem] overflow-hidden shadow-xl">
+              <div className="p-6 border-b border-gray-800/50 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Box size={18} className="text-gray-400"/>
+                  <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">Active Contents Inventory</h2>
                 </div>
-            </Link>
-          ))
-        )}
+                <span className="text-[10px] font-black uppercase tracking-widest bg-gray-900 text-gray-500 px-3 py-1 rounded-lg">
+                  {items.length} SKUs
+                </span>
+              </div>
+              
+              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {items.length === 0 ? (
+                  <div className="col-span-full py-16 text-center">
+                     <Package size={32} className="mx-auto text-gray-800 mb-3" />
+                     <p className="text-gray-500 font-bold text-xs uppercase tracking-widest">This store is currently empty.</p>
+                  </div>
+                ) : (
+                  items.map(item => (
+                    <div 
+                      key={item.material_id} 
+                      onClick={() => router.push(`/materials/${item.material_id}`)}
+                      className="bg-black border border-gray-800 p-4 rounded-2xl flex justify-between items-center hover:border-purple-500/50 hover:bg-gray-900 transition-all cursor-pointer group"
+                    >
+                        <div className="flex items-center gap-3 overflow-hidden">
+                            <div className="w-10 h-10 bg-gray-900 rounded-xl flex items-center justify-center text-purple-500 shrink-0">
+                                <Package size={16} />
+                            </div>
+                            <div className="truncate">
+                                <h3 className="text-xs font-black uppercase tracking-tight group-hover:text-purple-400 truncate">{item.material_name}</h3>
+                                <span className="text-[9px] font-bold text-gray-600 uppercase truncate block">{item.category || 'Good'}</span>
+                            </div>
+                        </div>
+                        <div className="text-right shrink-0 ml-2">
+                            <span className="block text-[8px] font-black text-gray-600 uppercase tracking-widest">Qty</span>
+                            <span className="text-xl font-black font-mono text-white leading-none">{item.quantity}</span>
+                        </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
   )
 }
+
+export default function LocationItemsPage() { return <Suspense fallback={<div className="min-h-screen bg-black"/>}><StoreDossierContent /></Suspense> }
