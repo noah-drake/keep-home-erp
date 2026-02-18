@@ -3,7 +3,7 @@ import { useEffect, useState, Suspense } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
 import { useOrganization } from '../context/OrganizationContext'
-import { Package, Plus, Search, MoreVertical, Edit2, Trash2, Ban, ArrowLeftRight, ClipboardList, Shield, AlertCircle, CheckCircle2, MapPin, Box } from 'lucide-react'
+import { Package, Plus, Search, MoreVertical, Edit2, Trash2, Ban, ArrowLeftRight, ClipboardCheck, Shield, AlertCircle, CheckCircle2, MapPin, Box } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
@@ -180,6 +180,10 @@ function ActionDropdown({ item, router, onDelete, onToggleActive }: any) {
           <div className="absolute right-0 mt-2 w-48 bg-[#0f0f0f] border border-gray-800 rounded-2xl shadow-2xl py-2 overflow-hidden animate-in fade-in slide-in-from-top-2 z-20">
             <button onClick={(e) => { e.stopPropagation(); router.push(`/materials/${item.material_id}?edit=true`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3"><Edit2 size={14} className="text-blue-500" /> Edit Master Data</button>
             <button onClick={(e) => { e.stopPropagation(); router.push(`/inventory?material_id=${item.material_id}`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3"><ArrowLeftRight size={14} className="text-purple-500" /> Quick Transact</button>
+            
+            {/* AUDIT BUTTON ADDED HERE */}
+            <button onClick={(e) => { e.stopPropagation(); router.push(`/inventory/count`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3"><ClipboardCheck size={14} className="text-blue-500" /> Audit Stock</button>
+            
             <div className="border-t border-gray-800 my-1"></div>
             <button onClick={(e) => { setIsOpen(false); onToggleActive(e) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-400 flex items-center gap-3"><Ban size={14} /> {item.is_active === false ? 'Flag Active' : 'Flag Inactive'}</button>
             <button onClick={(e) => { setIsOpen(false); onDelete(e) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-red-950/50 hover:text-red-400 transition-colors text-red-500 flex items-center gap-3"><Trash2 size={14} /> Delete</button>

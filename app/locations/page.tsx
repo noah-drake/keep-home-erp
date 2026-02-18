@@ -2,7 +2,7 @@
 import { useEffect, useState, Suspense } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useOrganization } from '../context/OrganizationContext'
-import { MapPin, Plus, Search, MoreVertical, Edit2, Trash2, Box, ArrowRightLeft } from 'lucide-react'
+import { MapPin, Plus, Search, MoreVertical, Edit2, Trash2, Box, ArrowRightLeft, ClipboardCheck } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
@@ -60,6 +60,7 @@ function StoresPageContent() {
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
       <div className="max-w-7xl mx-auto space-y-8">
         
+        {/* HEADER */}
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-800 pb-6">
           <div>
             <h1 className="text-4xl font-black uppercase tracking-tighter italic text-gray-100 mb-1">The Stores</h1>
@@ -72,6 +73,7 @@ function StoresPageContent() {
           </button>
         </header>
 
+        {/* SEARCH */}
         <div className="relative group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-purple-400 transition-colors" size={18} />
           <input 
@@ -82,53 +84,55 @@ function StoresPageContent() {
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredStores.map((store) => {
-             const stockCount = store.stock_count?.[0]?.count || 0
+        {/* DENSE DATA TABLE */}
+        <div className="bg-gray-900 border border-gray-800 rounded-[2.5rem] overflow-hidden shadow-2xl">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse whitespace-nowrap">
+              <thead>
+                <tr className="bg-black/50 border-b border-gray-800">
+                  <th className="p-5 text-[9px] font-black uppercase tracking-widest text-gray-500">Store Identity</th>
+                  <th className="p-5 text-[9px] font-black uppercase tracking-widest text-gray-500 text-right">Unique SKUs Inside</th>
+                  <th className="p-5 text-[9px] font-black uppercase tracking-widest text-gray-500 text-center w-16">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {filteredStores.length === 0 ? (
+                  <tr><td colSpan={3} className="p-8 text-center text-sm font-bold text-gray-500">No stores found.</td></tr>
+                ) : (
+                  filteredStores.map((store) => {
+                    const stockCount = store.stock_count?.[0]?.count || 0
 
-             return (
-              <div 
-                key={store.id} 
-                onClick={() => router.push(`/locations/${store.id}`)}
-                className="bg-[#0f0f0f] border border-gray-800 p-6 rounded-[2.5rem] hover:border-purple-500/50 cursor-pointer transition-all group relative overflow-hidden flex flex-col justify-between min-h-[220px]"
-              >
-                <div>
-                  <div className="flex justify-between items-start mb-6">
-                    <div className="w-12 h-12 bg-black border border-gray-800 rounded-2xl flex items-center justify-center text-purple-500 group-hover:scale-110 transition-transform">
-                      <MapPin size={24} />
-                    </div>
-                    <div onClick={e => e.stopPropagation()}>
-                      <ActionDropdown 
-                        store={store} 
-                        router={router} 
-                        onDelete={(e: React.MouseEvent) => handleDelete(e, store.id, store.name, stockCount)} 
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <h2 className="text-2xl font-black uppercase tracking-tight text-gray-200 group-hover:text-purple-400 transition-colors">{store.name}</h2>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-600">ID: {store.id.slice(0, 8)}</p>
-                  </div>
-                </div>
-
-                <div className="mt-8 pt-6 border-t border-gray-800/50 flex justify-between items-end">
-                  <div>
-                    <p className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1">Unique SKUs Inside</p>
-                    <div className="flex items-center gap-2">
-                      <Box size={14} className={stockCount > 0 ? "text-purple-500" : "text-gray-600"} />
-                      <span className={`text-2xl font-black tracking-tighter ${stockCount > 0 ? "text-white" : "text-gray-600"}`}>{stockCount}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="absolute -right-4 -bottom-4 opacity-[0.02] pointer-events-none group-hover:opacity-[0.06] transition-opacity">
-                  <MapPin size={120} />
-                </div>
-              </div>
-            )
-          })}
+                    return (
+                      <tr key={store.id} onClick={() => router.push(`/locations/${store.id}`)} className="hover:bg-gray-800/50 transition-colors group cursor-pointer">
+                        <td className="p-5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center border bg-blue-900/20 border-blue-500/30 text-blue-400">
+                              <MapPin size={14} />
+                            </div>
+                            <div>
+                                <p className="font-black text-sm text-gray-200 group-hover:text-white transition-colors">{store.name}</p>
+                                <p className="text-[9px] uppercase tracking-widest text-gray-600">ID: {store.id.slice(0, 8)}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-5 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                             <Box size={14} className={stockCount > 0 ? "text-purple-500" : "text-gray-600"} />
+                             <p className={`text-lg font-black tracking-tighter ${stockCount > 0 ? "text-white" : "text-gray-600"}`}>{stockCount}</p>
+                          </div>
+                        </td>
+                        <td className="p-5 text-center relative" onClick={e => e.stopPropagation()}>
+                           <ActionDropdown store={store} router={router} onDelete={(e: React.MouseEvent) => handleDelete(e, store.id, store.name, stockCount)} />
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
+
       </div>
     </div>
   )
@@ -139,7 +143,7 @@ function ActionDropdown({ store, router, onDelete }: any) {
   return (
     <div className="relative inline-block text-left z-10">
       <button onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen) }} className="p-2 text-gray-500 hover:text-white rounded-lg hover:bg-gray-800 transition-colors">
-        <MoreVertical size={18} />
+        <MoreVertical size={16} />
       </button>
       {isOpen && (
         <>
@@ -147,6 +151,7 @@ function ActionDropdown({ store, router, onDelete }: any) {
           <div className="absolute right-0 mt-2 w-48 bg-[#0f0f0f] border border-gray-800 rounded-2xl shadow-2xl py-2 overflow-hidden animate-in fade-in slide-in-from-top-2 z-20">
             <button onClick={(e) => { e.stopPropagation(); router.push(`/locations/${store.id}?edit=true`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3"><Edit2 size={14} className="text-blue-500" /> Edit Store Data</button>
             <button onClick={(e) => { e.stopPropagation(); router.push(`/inventory?location_id=${store.id}`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3"><ArrowRightLeft size={14} className="text-purple-500" /> Process Goods</button>
+            <button onClick={(e) => { e.stopPropagation(); router.push(`/inventory/count?location_id=${store.id}`) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-gray-800 transition-colors text-gray-300 flex items-center gap-3"><ClipboardCheck size={14} className="text-blue-500" /> Audit Store</button>
             <div className="border-t border-gray-800 my-1"></div>
             <button onClick={(e) => { setIsOpen(false); onDelete(e) }} className="w-full text-left px-4 py-3 text-xs font-bold hover:bg-red-950/50 hover:text-red-400 transition-colors text-red-500 flex items-center gap-3"><Trash2 size={14} /> Demolish</button>
           </div>
