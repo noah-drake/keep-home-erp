@@ -11,6 +11,7 @@ function TransactionEngine() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const urlMaterialId = searchParams.get('material_id')
+  const urlLocationId = searchParams.get('location_id')
   const { organization } = useOrganization()
 
   const [loading, setLoading] = useState(true)
@@ -22,7 +23,7 @@ function TransactionEngine() {
   const [primaryMaterial, setPrimaryMaterial] = useState<any>(null)
 
   const [lines, setLines] = useState<any[]>([
-    { id: Date.now(), material_id: urlMaterialId || '', location_id: '', to_location_id: '', quantity: '', type: 'OUTBOUND', notes: '' }
+    { id: Date.now(), material_id: urlMaterialId || '', location_id: urlLocationId ||'', to_location_id: '', quantity: '', type: '', notes: '' }
   ])
 
   useEffect(() => {
@@ -59,28 +60,48 @@ function TransactionEngine() {
   }
 
   // --- REBUILT VALIDATION (UUID FRIENDLY) ---
+  // --- HARD VALIDATION LOGIC (UUID & BATCH SAFE) ---
   const validateBatch = () => {
-    // We use a Map with a pipe delimiter because UUIDs contain dashes
+    // We use a Map with a pipe delimiter because UUIDs naturally contain dashes
+    // This allows us to group multiple lines affecting the same item in the same store
     const projectedChanges = new Map<string, number>()
 
     for (const line of lines) {
-      if (!line.material_id || !line.location_id || !line.quantity) continue
-      const qty = parseFloat(line.quantity)
-      const key = `${line.material_id}|${line.location_id}`
+      // 1. Mandatory Selection Check
+      if (!line.type || !line.material_id || !line.location_id || !line.quantity) {
+        alert("VALIDATION FAILED: Please ensure every row has an Operation, Item, Chamber, and Quantity.")
+        return false
+      }
 
+      const qty = parseFloat(line.quantity)
+      if (isNaN(qty) || qty <= 0) {
+        alert("VALIDATION FAILED: Quantity must be a valid number greater than zero.")
+        return false
+      }
+
+      // 2. Identify movements that reduce stock
+      const key = `${line.material_id}|${line.location_id}`
       if (line.type === 'OUTBOUND' || line.type === 'TRANSFER') {
         projectedChanges.set(key, (projectedChanges.get(key) || 0) + qty)
       }
     }
 
+    // 3. Compare Total Requested vs. Current Ledger Availability
     for (const [key, totalRequested] of projectedChanges.entries()) {
       const [mId, lId] = key.split('|')
-      const currentAvailable = stockByLoc.find(s => s.material_id === mId && s.location_id === lId)?.quantity || 0
+      
+      // Look up the live stock level from our view_stock_by_location data
+      const currentAvailable = stockByLoc.find(
+        s => s.material_id === mId && s.location_id === lId
+      )?.quantity || 0
       
       if (totalRequested > currentAvailable) {
         const matName = materials.find(m => m.material_id === mId)?.name || "Item"
         const locName = locations.find(l => l.id === lId)?.name || "Location"
-        alert(`STOCK REJECTED: You are trying to move ${totalRequested} of ${matName} from ${locName}, but only ${currentAvailable} exist in that chamber.`)
+        
+        alert(
+          `STOCK REJECTED: You are trying to move ${totalRequested} of "${matName}" from "${locName}", but the ledger only shows ${currentAvailable} available.`
+        )
         return false
       }
     }
@@ -158,6 +179,7 @@ function TransactionEngine() {
                   <div className="w-full lg:w-44">
                     <label className="text-[8px] font-black uppercase tracking-widest text-gray-600 mb-1.5 block">Operation</label>
                     <select value={line.type} onChange={e => updateLine(line.id, 'type', e.target.value)} className={`w-full bg-black border p-3 rounded-xl text-[10px] font-black uppercase outline-none transition-colors ${line.type === 'INBOUND' ? 'border-purple-500 text-purple-400' : line.type === 'OUTBOUND' ? 'border-yellow-500 text-yellow-500' : 'border-blue-500 text-blue-400'}`}>
+                      <option value="" disabled>-- Select --</option>
                       <option value="OUTBOUND">Goods Issue (-)</option>
                       <option value="INBOUND">Goods Receipt (+)</option>
                       <option value="TRANSFER">Transfer (A → B)</option>

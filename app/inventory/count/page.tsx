@@ -33,7 +33,7 @@ function CountEngineContent() {
       setLoading(true)
       const [locRes, matRes] = await Promise.all([
         supabase.from('locations').select('*').eq('organization_id', organization.id).order('name'),
-        supabase.from('materials').select('*').eq('organization_id', organization.id).eq('is_active', true)
+        supabase.from('materials').select('*').or('organization_id.eq.${organization.id}, organization_id.is.null').eq('is_active', true)
       ])
       if (locRes.data) setLocations(locRes.data)
       if (matRes.data) setMaterials(matRes.data)

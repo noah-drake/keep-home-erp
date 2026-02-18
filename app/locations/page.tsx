@@ -52,7 +52,10 @@ function StoresPageContent() {
     else setStores(stores.filter(s => s.id !== id))
   }
 
-  const filteredStores = stores.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()))
+  const filteredStores = stores.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase())).sort((a,b)=>{const countA = a.stock_count?.[0]?.count || 0
+      const countB = b.stock_count?.[0]?.count || 0
+      return countB - countA // Highest count first
+    })
 
   if (loading) return <div className="min-h-screen bg-black flex items-center justify-center text-purple-500 font-black uppercase tracking-widest">Opening Vault...</div>
 
