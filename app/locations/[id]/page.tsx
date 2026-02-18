@@ -3,7 +3,7 @@ import { useEffect, useState, Suspense } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../../context/OrganizationContext'
-import { ArrowLeft, Save, Trash2, MapPin, Package, AlertTriangle, Edit2, X, Box } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, MapPin, Package, AlertTriangle, Edit2, X, Box, ArrowRightLeft, ClipboardCheck } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
@@ -54,10 +54,7 @@ function StoreDossierContent() {
 
   const handleDelete = async () => {
     if (!confirm(`CASCADE DANGER: Force demolish ${name}? This will permanently erase ALL transaction history referencing this location.`)) return
-    
-    // First, wipe history for this location to satisfy foreign keys
     await supabase.from('inventory_movements').delete().eq('location_id', locId)
-    
     const { error } = await supabase.from('locations').delete().eq('id', locId)
     if (error) alert(error.message)
     else router.push('/locations')
@@ -72,26 +69,34 @@ function StoreDossierContent() {
         {/* HEADER */}
         <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-800 pb-6 gap-4">
           <div className="flex items-center gap-4">
-            <button onClick={() => router.push('/locations')} className="p-3 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 hover:text-white hover:border-purple-500 transition-all"><ArrowLeft size={20} /></button>
+            <button onClick={() => router.push('/locations')} className="p-3 bg-gray-900 border border-gray-800 rounded-xl text-gray-400 hover:text-white transition-all"><ArrowLeft size={20} /></button>
             <div>
               <h1 className="text-3xl font-black uppercase tracking-tighter italic text-gray-100 flex items-center gap-3">{name}</h1>
               <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Store Master Dossier</p>
             </div>
           </div>
           <div className="flex gap-3">
-             {isAdmin && !isEditing && <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 bg-gray-900 border border-gray-800 hover:bg-gray-800 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-white"><Edit2 size={14} /> Edit Store</button>}
+             <button onClick={() => router.push(`/inventory?location_id=${locId}`)} className={btnSec}>
+               <ArrowRightLeft size={14} /> Process Goods
+             </button>
+             <button onClick={() => router.push(`/inventory/count?location_id=${locId}`)} className={`${btnSec} text-blue-400`}>
+               <ClipboardCheck size={14} /> Audit Store
+             </button>
+             {isAdmin && !isEditing && (
+               <button onClick={() => setIsEditing(true)} className={btnMain}>
+                 <Edit2 size={14} /> Edit Store
+               </button>
+             )}
              {isEditing && (
                <>
-                 <button onClick={() => { setIsEditing(false); router.replace(`/locations/${locId}`) }} className="flex items-center gap-2 bg-gray-900 border border-gray-800 hover:text-red-400 px-4 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-gray-400"><X size={14} /> Cancel</button>
-                 <button onClick={handleSave} disabled={saving} className="bg-purple-600 hover:bg-purple-500 px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg active:scale-95"><Save size={14} /> {saving ? 'Saving...' : 'Save File'}</button>
+                 <button onClick={() => { setIsEditing(false); router.replace(`/locations/${locId}`) }} className={`${btnSec} text-red-400`}><X size={14} /> Cancel</button>
+                 <button onClick={handleSave} disabled={saving} className={`${btnMain} bg-purple-600 hover:bg-purple-500 shadow-lg shadow-purple-900/20`}><Save size={14} /> {saving ? 'Saving...' : 'Save File'}</button>
                </>
              )}
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* MAIN COLUMN (Identity & Actions) */}
           <div className="space-y-6">
             <div className={`bg-[#0f0f0f] border p-6 rounded-[2.5rem] space-y-6 transition-colors ${isEditing ? 'border-purple-500/50' : 'border-gray-800'}`}>
                <div className="flex items-center gap-3 border-b border-gray-800/50 pb-4">
@@ -99,11 +104,11 @@ function StoreDossierContent() {
                   <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">Core Identity</h2>
                </div>
                <div>
-                 <label className="block text-[9px] font-black uppercase tracking-widest text-gray-600 mb-2">Store Name</label>
+                 <label className={lbl}>Store Name</label>
                  {isEditing ? (
-                   <input value={name} onChange={e => setName(e.target.value)} className="w-full bg-black border border-gray-800 p-4 rounded-2xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200" />
+                   <input value={name} onChange={e => setName(e.target.value)} className={inpt} />
                  ) : (
-                   <p className="font-bold text-sm text-gray-200 bg-black/50 p-4 rounded-2xl border border-gray-800/50">{name}</p>
+                   <p className={val}>{name}</p>
                  )}
                </div>
             </div>
@@ -117,7 +122,6 @@ function StoreDossierContent() {
             )}
           </div>
 
-          {/* CONTENTS COLUMN */}
           <div className="lg:col-span-2">
             <div className="bg-[#0f0f0f] border border-gray-800 rounded-[2.5rem] overflow-hidden shadow-xl">
               <div className="p-6 border-b border-gray-800/50 flex items-center justify-between">
@@ -162,11 +166,17 @@ function StoreDossierContent() {
               </div>
             </div>
           </div>
-
         </div>
       </div>
     </div>
   )
 }
 
-export default function LocationItemsPage() { return <Suspense fallback={<div className="min-h-screen bg-black"/>}><StoreDossierContent /></Suspense> }
+// Reusable Tailwind classes for form elements
+const lbl = "block text-[9px] font-black uppercase tracking-widest text-gray-600 mb-2";
+const inpt = "w-full bg-black border border-gray-800 p-4 rounded-2xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200";
+const val = "font-bold text-sm text-gray-200 bg-black/50 p-4 rounded-2xl border border-gray-800/50";
+const btnSec = "flex items-center gap-2 bg-[#0f0f0f] border border-gray-800 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-purple-400 hover:border-purple-500";
+const btnMain = "flex items-center gap-2 bg-gray-900 border border-gray-800 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-white hover:bg-gray-800";
+
+export default function StoreDossierPage() { return <Suspense fallback={<div className="min-h-screen bg-black"/>}><StoreDossierContent /></Suspense> }

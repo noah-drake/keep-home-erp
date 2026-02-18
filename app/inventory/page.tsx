@@ -3,7 +3,7 @@ import { useEffect, useState, Suspense } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../context/OrganizationContext'
-import { ArrowLeft, Plus, Trash2, Save, Shield, Package, MapPin, AlertCircle } from 'lucide-react'
+import { Plus, Trash2, Save, MapPin, ArrowRightLeft, Info } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
@@ -16,92 +16,56 @@ function TransactionEngine() {
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  
   const [materials, setMaterials] = useState<any[]>([])
   const [locations, setLocations] = useState<any[]>([])
   const [stockByLoc, setStockByLoc] = useState<any[]>([])
-  const [primaryMaterial, setPrimaryMaterial] = useState<any>(null)
-
-  const [lines, setLines] = useState<any[]>([
-    { id: Date.now(), material_id: urlMaterialId || '', location_id: urlLocationId ||'', to_location_id: '', quantity: '', type: '', notes: '' }
-  ])
+  const [lines, setLines] = useState<any[]>([])
 
   useEffect(() => {
     const fetchData = async () => {
       if (!organization) return
       setLoading(true)
-      
       const [matRes, locRes, sblRes] = await Promise.all([
-        supabase.from('view_current_stock').select('*').eq('organization_id', organization.id).order('name'),
+        supabase.from('materials').select('*').or(`organization_id.eq.${organization.id},organization_id.is.null`).eq('is_active', true).order('name'),
         supabase.from('locations').select('*').eq('organization_id', organization.id).order('name'),
         supabase.from('view_stock_by_location').select('*').eq('organization_id', organization.id)
       ])
-
-      if (matRes.data) {
-        setMaterials(matRes.data)
-        if (urlMaterialId) {
-          setPrimaryMaterial(matRes.data.find(m => m.material_id === urlMaterialId))
-        }
-      }
+      if (matRes.data) setMaterials(matRes.data)
       if (locRes.data) setLocations(locRes.data)
       if (sblRes.data) setStockByLoc(sblRes.data)
-      
       setLoading(false)
     }
     fetchData()
-  }, [organization, urlMaterialId])
+  }, [organization])
 
-  const addLine = () => {
-    setLines([...lines, { id: Date.now(), material_id: '', location_id: '', to_location_id: '', quantity: '', type: 'OUTBOUND', notes: '' }])
-  }
+  useEffect(() => {
+    if (!loading) {
+      setLines([{ id: Date.now(), material_id: urlMaterialId || '', location_id: urlLocationId || '', to_location_id: '', quantity: '', type: '', notes: '', showNotes: false }])
+    }
+  }, [loading, urlMaterialId, urlLocationId])
 
   const updateLine = (id: number, field: string, value: any) => {
     setLines(lines.map(l => l.id === id ? { ...l, [field]: value } : l))
   }
 
-  // --- REBUILT VALIDATION (UUID FRIENDLY) ---
-  // --- HARD VALIDATION LOGIC (UUID & BATCH SAFE) ---
   const validateBatch = () => {
-    // We use a Map with a pipe delimiter because UUIDs naturally contain dashes
-    // This allows us to group multiple lines affecting the same item in the same store
     const projectedChanges = new Map<string, number>()
-
     for (const line of lines) {
-      // 1. Mandatory Selection Check
       if (!line.type || !line.material_id || !line.location_id || !line.quantity) {
-        alert("VALIDATION FAILED: Please ensure every row has an Operation, Item, Chamber, and Quantity.")
+        alert("VALIDATION FAILED: Complete all fields in every row.")
         return false
       }
-
       const qty = parseFloat(line.quantity)
-      if (isNaN(qty) || qty <= 0) {
-        alert("VALIDATION FAILED: Quantity must be a valid number greater than zero.")
-        return false
-      }
-
-      // 2. Identify movements that reduce stock
       const key = `${line.material_id}|${line.location_id}`
       if (line.type === 'OUTBOUND' || line.type === 'TRANSFER') {
         projectedChanges.set(key, (projectedChanges.get(key) || 0) + qty)
       }
     }
-
-    // 3. Compare Total Requested vs. Current Ledger Availability
     for (const [key, totalRequested] of projectedChanges.entries()) {
       const [mId, lId] = key.split('|')
-      
-      // Look up the live stock level from our view_stock_by_location data
-      const currentAvailable = stockByLoc.find(
-        s => s.material_id === mId && s.location_id === lId
-      )?.quantity || 0
-      
-      if (totalRequested > currentAvailable) {
-        const matName = materials.find(m => m.material_id === mId)?.name || "Item"
-        const locName = locations.find(l => l.id === lId)?.name || "Location"
-        
-        alert(
-          `STOCK REJECTED: You are trying to move ${totalRequested} of "${matName}" from "${locName}", but the ledger only shows ${currentAvailable} available.`
-        )
+      const available = stockByLoc.find(s => s.material_id === mId && s.location_id === lId)?.quantity || 0
+      if (totalRequested > available) {
+        alert(`INSUFFICIENT STOCK: Only ${available} units available for this move.`)
         return false
       }
     }
@@ -110,149 +74,94 @@ function TransactionEngine() {
 
   const handleSubmit = async () => {
     if (!validateBatch()) return
-    
     setSaving(true)
     const movements: any[] = []
-
     lines.forEach(line => {
       const qty = parseFloat(line.quantity)
       if (line.type === 'TRANSFER') {
         movements.push(
-          { organization_id: organization.id, material_id: line.material_id, location_id: line.location_id, quantity: -qty, movement_type: 'TRANSFER_OUT', notes: line.notes || 'Transfer Out' },
-          { organization_id: organization.id, material_id: line.material_id, location_id: line.to_location_id, quantity: qty, movement_type: 'TRANSFER_IN', notes: line.notes || 'Transfer In' }
+          { organization_id: organization.id, material_id: line.material_id, location_id: line.location_id, quantity: -qty, movement_type: 'TRANSFER_OUT', notes: line.notes },
+          { organization_id: organization.id, material_id: line.material_id, location_id: line.to_location_id, quantity: qty, movement_type: 'TRANSFER_IN', notes: line.notes }
         )
       } else {
-        movements.push({
-          organization_id: organization.id,
-          material_id: line.material_id,
-          location_id: line.location_id,
-          quantity: line.type === 'OUTBOUND' ? -qty : qty,
-          movement_type: line.type,
-          notes: line.notes || null
-        })
+        movements.push({ organization_id: organization.id, material_id: line.material_id, location_id: line.location_id, quantity: line.type === 'OUTBOUND' ? -qty : qty, movement_type: line.type, notes: line.notes })
       }
     })
-
     const { error } = await supabase.from('inventory_movements').insert(movements)
     if (error) alert(error.message)
     else router.push('/history')
     setSaving(false)
   }
 
-  if (loading) return <div className="min-h-screen bg-black flex items-center justify-center text-purple-500 font-black tracking-widest uppercase">Verifying Vault...</div>
+  if (loading) return <div className="min-h-screen bg-black flex items-center justify-center text-purple-500 font-black uppercase">Syncing Ledger...</div>
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
       <div className="max-w-[1440px] mx-auto space-y-8">
-        
         <header className="border-b border-gray-800 pb-6 flex justify-between items-center">
-          <div>
-            <h1 className="text-4xl font-black uppercase tracking-tighter italic">Ledger Entry</h1>
-            <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mt-1">Batch Goods Movements</p>
-          </div>
-          <button onClick={handleSubmit} disabled={saving} className="bg-purple-600 hover:bg-purple-500 px-10 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 shadow-lg transition-all active:scale-95">
+          <h1 className="text-4xl font-black uppercase tracking-tighter italic">Ledger Entry</h1>
+          <button onClick={handleSubmit} disabled={saving} className="bg-purple-600 hover:bg-purple-500 px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-purple-900/20">
             <Save size={16}/> {saving ? 'Recording...' : 'Commit Batch'}
           </button>
         </header>
 
-        {primaryMaterial && (
-          <div className="bg-purple-900/10 border border-purple-500/30 p-6 rounded-[2.5rem] flex items-center gap-6 animate-in fade-in zoom-in-95">
-            <div className="w-14 h-14 bg-black border border-purple-500/50 rounded-2xl flex items-center justify-center text-purple-400">
-               <Package size={28} />
-            </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-purple-400">Active Focus</p>
-              <h2 className="text-2xl font-black uppercase tracking-tight leading-none">{primaryMaterial.name}</h2>
-            </div>
-          </div>
-        )}
-
         <div className="space-y-3">
           {lines.map((line) => {
             const activeStock = stockByLoc.filter(s => s.material_id === line.material_id && s.quantity > 0)
-
             return (
-              <div key={line.id} className="bg-[#0f0f0f] border border-gray-800 p-4 rounded-[1.5rem] shadow-xl hover:border-gray-700 transition-colors">
-                <div className="flex flex-wrap lg:flex-nowrap gap-4 items-end">
-                  
-                  {/* Type */}
-                  <div className="w-full lg:w-44">
+              <div key={line.id} className="bg-[#0f0f0f] border border-gray-800 p-4 rounded-[1.5rem] relative group shadow-xl">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
+                  <div className="lg:col-span-2">
                     <label className="text-[8px] font-black uppercase tracking-widest text-gray-600 mb-1.5 block">Operation</label>
-                    <select value={line.type} onChange={e => updateLine(line.id, 'type', e.target.value)} className={`w-full bg-black border p-3 rounded-xl text-[10px] font-black uppercase outline-none transition-colors ${line.type === 'INBOUND' ? 'border-purple-500 text-purple-400' : line.type === 'OUTBOUND' ? 'border-yellow-500 text-yellow-500' : 'border-blue-500 text-blue-400'}`}>
-                      <option value="" disabled>-- Select --</option>
-                      <option value="OUTBOUND">Goods Issue (-)</option>
-                      <option value="INBOUND">Goods Receipt (+)</option>
-                      <option value="TRANSFER">Transfer (A → B)</option>
+                    <select value={line.type} onChange={e => updateLine(line.id, 'type', e.target.value)} className={`w-full bg-black border p-3 rounded-xl outline-none transition-colors font-bold text-[10px] ${line.type === 'INBOUND' ? 'border-purple-500 text-purple-400' : line.type === 'OUTBOUND' ? 'border-yellow-500 text-yellow-500' : line.type === 'TRANSFER' ? 'border-blue-500 text-blue-400' : 'border-gray-800 text-gray-500'}`}>
+                      <option value="" className="bg-gray-900 text-white">-- Select --</option>
+                      <option value="OUTBOUND" className="bg-gray-900 text-white">Issue (-)</option>
+                      <option value="INBOUND" className="bg-gray-900 text-white">Receive (+)</option>
+                      <option value="TRANSFER" className="bg-gray-900 text-white">Transfer</option>
                     </select>
                   </div>
-
-                  {/* Good */}
-                  <div className="w-full lg:w-72">
-                    <label className="text-[8px] font-black uppercase tracking-widest text-gray-600 mb-1.5 block">Master Good</label>
-                    <select value={line.material_id} onChange={e => updateLine(line.id, 'material_id', e.target.value)} className="w-full bg-black border border-gray-800 p-3 rounded-xl text-xs font-bold outline-none focus:border-purple-500">
-                      <option value="">-- Select Good --</option>
-                      {materials.map(m => <option key={m.material_id} value={m.material_id}>{m.name}</option>)}
+                  <div className="lg:col-span-3">
+                    <label className="text-[8px] font-black uppercase tracking-widest text-gray-600 mb-1.5 block">Item</label>
+                    <select value={line.material_id} onChange={e => updateLine(line.id, 'material_id', e.target.value)} className="w-full bg-black border border-gray-800 p-3 rounded-xl outline-none focus:border-purple-500 transition-colors font-bold text-gray-200 text-xs">
+                      <option value="" className="bg-gray-900 text-white">-- Choose --</option>
+                      {materials.map(m => <option key={m.id} value={m.id} className="bg-gray-900 text-white">{m.name}</option>)}
                     </select>
                   </div>
-
-                  {/* Source */}
-                  <div className="w-full lg:w-56">
-                    <label className="text-[8px] font-black uppercase tracking-widest text-gray-600 mb-1.5 block">{line.type === 'INBOUND' ? 'Destination Chamber' : 'Source Chamber'}</label>
-                    <select required value={line.location_id} onChange={e => updateLine(line.id, 'location_id', e.target.value)} className="w-full bg-black border border-gray-800 p-3 rounded-xl text-xs font-bold outline-none focus:border-purple-500">
-                      <option value="">-- Choose --</option>
-                      {line.type === 'INBOUND' ? locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>) :
-                       activeStock.map(s => <option key={s.location_id} value={s.location_id}>{s.location_name} ({s.quantity})</option>)}
+                  <div className={line.type === 'TRANSFER' ? 'lg:col-span-2' : 'lg:col-span-3'}>
+                    <label className="text-[8px] font-black uppercase tracking-widest text-gray-600 mb-1.5 block">{line.type === 'INBOUND' ? 'Destination Store' : 'Source Store'}</label>
+                    <select required value={line.location_id} onChange={e => updateLine(line.id, 'location_id', e.target.value)} className="w-full bg-black border border-gray-800 p-3 rounded-xl outline-none focus:border-purple-500 transition-colors font-bold text-gray-200 text-xs">
+                      <option value="" className="bg-gray-900 text-white">-- Select --</option>
+                      {line.type === 'INBOUND' ? locations.map(l => <option key={l.id} value={l.id} className="bg-gray-900 text-white">{l.name}</option>) :
+                       activeStock.map(s => <option key={s.location_id} value={s.location_id} className="bg-gray-900 text-white">{s.location_name} ({s.quantity})</option>)}
                     </select>
                   </div>
-
-                  {/* Dest (Transfer Only) */}
                   {line.type === 'TRANSFER' && (
-                    <div className="w-full lg:w-56 animate-in slide-in-from-left-2">
-                      <label className="text-[8px] font-black uppercase tracking-widest text-gray-600 mb-1.5 block">Arrival Chamber</label>
-                      <select required value={line.to_location_id} onChange={e => updateLine(line.id, 'to_location_id', e.target.value)} className="w-full bg-black border border-gray-800 p-3 rounded-xl text-xs font-bold outline-none focus:border-blue-500">
-                        <option value="">-- Choose --</option>
-                        {locations.filter(l => l.id !== line.location_id).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                    <div className="lg:col-span-2 animate-in slide-in-from-left-2">
+                      <label className="text-[8px] font-black uppercase tracking-widest text-gray-600 mb-1.5 block">Arrival Store</label>
+                      <select required value={line.to_location_id} onChange={e => updateLine(line.id, 'to_location_id', e.target.value)} className="w-full bg-black border border-gray-800 p-3 rounded-xl outline-none focus:border-blue-500 transition-colors font-bold text-gray-200 text-xs">
+                        <option value="" className="bg-gray-900 text-white">-- Select --</option>
+                        {locations.filter(l => l.id !== line.location_id).map(l => <option key={l.id} value={l.id} className="bg-gray-900 text-white">{l.name}</option>)}
                       </select>
                     </div>
                   )}
-
-                  {/* Qty */}
-                  <div className="w-28">
-                    <label className="text-[8px] font-black uppercase tracking-widest text-gray-600 mb-1.5 block">Quantity</label>
-                    <input type="number" step="any" value={line.quantity} onChange={e => updateLine(line.id, 'quantity', e.target.value)} className="w-full bg-black border border-gray-800 p-3 rounded-xl text-xs font-black text-center outline-none focus:border-purple-500" />
+                  <div className="lg:col-span-1">
+                    <label className="text-[8px] font-black uppercase tracking-widest text-gray-600 mb-1.5 block">Qty</label>
+                    <input type="number" step="any" value={line.quantity} onChange={e => updateLine(line.id, 'quantity', e.target.value)} className="w-full bg-black border border-gray-800 p-3 rounded-xl outline-none focus:border-purple-500 transition-colors font-bold text-gray-200 text-xs text-center" />
                   </div>
-
-                  {/* Notes (Single Line) */}
-                  <div className="flex-1 min-w-[240px]">
-                    <label className="text-[8px] font-black uppercase tracking-widest text-gray-600 mb-1.5 block">Transaction Note</label>
-                    <input 
-                      placeholder="e.g. Weekly restock, Used for lunch..." 
-                      value={line.notes} 
-                      onChange={e => updateLine(line.id, 'notes', e.target.value)} 
-                      className="w-full bg-black border border-gray-800 p-3 rounded-xl text-xs font-medium outline-none focus:border-purple-500 italic" 
-                    />
+                  <div className="lg:col-span-1 flex justify-center">
+                    <button onClick={() => updateLine(line.id, 'showNotes', !line.showNotes)} className={`p-3 rounded-xl border transition-all ${line.showNotes ? 'bg-purple-600 text-white border-purple-500' : 'bg-gray-900 border-gray-800 text-gray-500'}`}><Info size={16} /></button>
                   </div>
-
-                  {/* Remove Button */}
-                  {lines.length > 1 && (
-                    <button onClick={() => setLines(lines.filter(l => l.id !== line.id))} className="p-3 text-red-500 hover:bg-red-500/10 rounded-xl transition-colors">
-                      <Trash2 size={18}/>
-                    </button>
-                  )}
                 </div>
+                {line.showNotes && <div className="mt-4 animate-in fade-in slide-in-from-top-2"><input placeholder="Audit reason / note..." value={line.notes} onChange={e => updateLine(line.id, 'notes', e.target.value)} className="w-full bg-black border border-gray-800 p-3 rounded-xl outline-none focus:border-purple-500 transition-colors font-bold text-gray-200 text-xs italic" /></div>}
+                {lines.length > 1 && <button onClick={() => setLines(lines.filter(l => l.id !== line.id))} className="absolute -right-3 -top-3 w-8 h-8 bg-red-950 border border-red-900 text-red-500 rounded-full flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-lg shadow-black/50"><Trash2 size={14}/></button>}
               </div>
             )
           })}
-
-          <button onClick={addLine} className="w-full py-4 border-2 border-dashed border-gray-800 rounded-2xl text-gray-600 hover:border-purple-500/50 hover:text-purple-400 transition-all font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 group">
-            <Plus size={16} /> Add Batch Line
-          </button>
+          <button onClick={() => setLines([...lines, { id: Date.now(), material_id: '', location_id: '', to_location_id: '', quantity: '', type: '', notes: '', showNotes: false }])} className="w-full py-4 border-2 border-dashed border-gray-800 rounded-2xl text-gray-600 hover:border-purple-500/50 hover:text-purple-400 transition-all font-black uppercase text-[10px] flex items-center justify-center gap-2 tracking-widest"><Plus size={16} /> Add Batch Line</button>
         </div>
       </div>
     </div>
   )
 }
 
-export default function InventoryPage() {
-  return <Suspense fallback={<div className="min-h-screen bg-black" />}><TransactionEngine /></Suspense>
-}
+export default function InventoryPage() { return <Suspense fallback={<div className="min-h-screen bg-black" />}><TransactionEngine /></Suspense> }
