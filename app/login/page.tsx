@@ -2,7 +2,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Package, ArrowRight, UserPlus, PartyPopper } from 'lucide-react'
+import { Package, ArrowRight, PartyPopper } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
@@ -12,60 +12,45 @@ function LoginForm() {
   const inviteId = searchParams.get('invite_id')
 
   const [isSignUp, setIsSignUp] = useState(!!inviteId)
-  const [loading, setLoading] = useState(true) // Start loading while we check session
+  const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [inviteData, setInviteData] = useState<any>(null)
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
-  const [plantName, setPlantName] = useState('')
 
   useEffect(() => {
       async function initializeFlow() {
           let currentInvite = null;
 
-          // 1. Validate the invite link if there is one
           if (inviteId) {
               const { data } = await supabase.from('invites').select('*, organizations(name)').eq('id', inviteId).single()
               if (data) {
                   setInviteData(data)
                   currentInvite = data
-              } else {
-                  setMessage("This invite link is invalid or has already been used.")
-              }
+              } else setMessage("This invite link is invalid or has already been used.")
           }
 
-          // 2. Check if the user is ALREADY logged in
           const { data: { session } } = await supabase.auth.getSession()
           
           if (session) {
               if (currentInvite) {
-                  // AUTO-CLAIM: They are logged in and clicked an invite link!
                   await claimInvite(currentInvite.organization_id, session.user.id, currentInvite.role)
                   router.push('/')
-                  router.refresh()
               } else {
-                  // No invite, just a logged-in user looking at the login page. Send them home.
                   router.push('/')
               }
           } else {
-              setLoading(false) // Safe to show the login form
+              setLoading(false)
           }
       }
       initializeFlow()
   }, [inviteId, router])
 
-  // Helper function to claim an invite
   const claimInvite = async (orgId: string, userId: string, role: string) => {
-      // Add them to the plant
-      const { error } = await supabase.from('organization_members').insert([
-          { organization_id: orgId, user_id: userId, role: role }
-      ])
-      // 23505 is the Postgres code for "Unique Violation" (they are already in the plant)
+      const { error } = await supabase.from('organization_members').insert([{ organization_id: orgId, user_id: userId, role: role }])
       if (error && error.code !== '23505') throw error
-      
-      // Destroy the invite
       await supabase.from('invites').delete().eq('id', inviteId)
   }
 
@@ -76,40 +61,22 @@ function LoginForm() {
 
     try {
         if (isSignUp) {
-            // --- NEW USER CREATION FLOW ---
             const { data: authData, error: authError } = await supabase.auth.signUp({
                 email, password, options: { data: { full_name: fullName } }
             })
             if (authError) throw authError
             if (!authData.user) throw new Error("Failed to create account.")
 
-            if (inviteData) {
-                // Claim the invite
-                await claimInvite(inviteData.organization_id, authData.user.id, inviteData.role)
-            } else {
-                // Create their own first plant
-                const { data: orgData, error: orgError } = await supabase.from('organizations').insert([{ name: plantName }]).select().single()
-                if (orgError) throw orgError
-
-                const { error: memberError } = await supabase.from('organization_members').insert([
-                    { organization_id: orgData.id, user_id: authData.user.id, role: 'admin' }
-                ])
-                if (memberError) throw memberError
-            }
-            router.push('/')
-            router.refresh()
-
+            if (inviteData) await claimInvite(inviteData.organization_id, authData.user.id, inviteData.role)
+            
+            // Send to root. Context will intercept and route to /settings if no org exists.
+            router.push('/') 
         } else {
-            // --- EXISTING USER LOGIN FLOW ---
             const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password })
             if (error) throw error
             
-            if (inviteData) {
-                // Claim the invite now that they are logged in
-                await claimInvite(inviteData.organization_id, authData.user.id, inviteData.role)
-            }
+            if (inviteData) await claimInvite(inviteData.organization_id, authData.user.id, inviteData.role)
             router.push('/')
-            router.refresh()
         }
     } catch (err: any) {
         setMessage(err.message || "An error occurred.")
@@ -117,62 +84,50 @@ function LoginForm() {
     }
   }
 
-  if (loading) {
-      return <div className="animate-pulse font-black text-purple-500 uppercase tracking-widest text-xs">Authenticating...</div>
-  }
+  if (loading) return <div className="animate-pulse font-black text-purple-500 uppercase tracking-widest text-xs">Authenticating...</div>
 
   return (
-    <div className="w-full max-w-md bg-gray-900 border border-gray-800 p-8 md:p-10 rounded-[2.5rem] shadow-2xl">
+    <div className="w-full max-w-md bg-[#0f0f0f] border border-gray-800 p-8 md:p-10 rounded-[2.5rem] shadow-2xl">
         <div className="flex justify-center mb-6">
-            <div className="w-14 h-14 bg-purple-900/30 rounded-2xl flex items-center justify-center border border-purple-500/30">
-                {inviteData ? <PartyPopper size={28} className="text-green-500" /> : <Package size={28} className="text-purple-500" />}
+            <div className="w-16 h-16 bg-purple-900/20 rounded-2xl flex items-center justify-center border border-purple-500/30 shadow-inner">
+                {inviteData ? <PartyPopper size={32} className="text-green-500" /> : <Package size={32} className="text-purple-500" />}
             </div>
         </div>
 
-        <h1 className="text-3xl font-black uppercase tracking-tighter text-center mb-1">
+        <h1 className="text-3xl font-black uppercase tracking-tighter text-center mb-1 text-gray-100">
             {inviteData ? 'You are invited!' : (isSignUp ? 'Create Account' : 'Welcome Back')}
         </h1>
         <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest text-center mb-8">
-            {inviteData ? `Join ${inviteData.organizations?.name}` : (isSignUp ? 'Set up your profile and plant' : 'Enterprise Resource Planning')}
+            {inviteData ? `Join ${inviteData.organizations?.name}` : 'Enterprise Resource Planning'}
         </p>
 
-        {message && (
-            <div className="bg-red-500/10 border border-red-500/50 text-red-400 p-4 rounded-xl text-xs font-bold text-center mb-6">{message}</div>
-        )}
+        {message && <div className="bg-red-950/50 border border-red-900/50 text-red-400 p-4 rounded-xl text-xs font-bold text-center mb-6">{message}</div>}
 
         <form onSubmit={handleAuth} className="space-y-4">
           {isSignUp && (
-              <div className={`grid ${inviteData ? 'grid-cols-1' : 'grid-cols-2'} gap-4 animate-in fade-in zoom-in duration-300`}>
-                 <div>
-                    <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2 block mb-1">Your Name</label>
-                    <input required className="w-full bg-black border border-gray-800 p-4 rounded-2xl outline-none focus:border-purple-500 font-bold text-sm" placeholder="e.g. Jane" value={fullName} onChange={e => setFullName(e.target.value)} />
-                 </div>
-                 {!inviteData && (
-                     <div>
-                        <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2 mb-1 block">First Plant Name</label>
-                        <input required className="w-full bg-black border border-gray-800 p-4 rounded-2xl outline-none focus:border-purple-500 font-bold text-sm" placeholder="e.g. Home Base" value={plantName} onChange={e => setPlantName(e.target.value)} />
-                     </div>
-                 )}
+              <div className="animate-in fade-in zoom-in duration-300">
+                 <label className="text-[9px] font-black text-gray-600 uppercase tracking-widest ml-2 block mb-1">Your Name</label>
+                 <input required className="w-full bg-black border border-gray-800 p-4 rounded-2xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200" placeholder="e.g. Jane" value={fullName} onChange={e => setFullName(e.target.value)} />
               </div>
           )}
 
           <div>
-            <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2 block mb-1">Email Address</label>
-            <input type="email" required className="w-full bg-black border border-gray-800 p-4 rounded-2xl outline-none focus:border-purple-500 font-bold text-sm" value={email} onChange={e => setEmail(e.target.value)} />
+            <label className="text-[9px] font-black text-gray-600 uppercase tracking-widest ml-2 block mb-1">Email Address</label>
+            <input type="email" required className="w-full bg-black border border-gray-800 p-4 rounded-2xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200" value={email} onChange={e => setEmail(e.target.value)} />
           </div>
           <div>
-            <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest ml-2 block mb-1">Password</label>
-            <input type="password" required minLength={6} className="w-full bg-black border border-gray-800 p-4 rounded-2xl outline-none focus:border-purple-500 font-bold text-sm" value={password} onChange={e => setPassword(e.target.value)} />
+            <label className="text-[9px] font-black text-gray-600 uppercase tracking-widest ml-2 block mb-1">Password</label>
+            <input type="password" required minLength={6} className="w-full bg-black border border-gray-800 p-4 rounded-2xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200" value={password} onChange={e => setPassword(e.target.value)} />
           </div>
 
-          <button disabled={loading} className="w-full bg-white text-black py-4 rounded-2xl font-black uppercase text-xs hover:bg-purple-600 hover:text-white transition-all mt-4 shadow-lg flex items-center justify-center gap-2 group">
+          <button disabled={loading} className="w-full bg-purple-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-purple-500 transition-all mt-4 shadow-lg shadow-purple-900/20 flex items-center justify-center gap-2 group active:scale-95">
             {isSignUp ? 'Create Account' : 'Secure Login'}
             <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
           </button>
         </form>
 
-        <div className="mt-8 text-center border-t border-gray-800 pt-6">
-            <button onClick={() => {setIsSignUp(!isSignUp); setMessage('');}} className="text-xs font-black text-purple-500 uppercase tracking-widest hover:text-purple-400 transition-colors">
+        <div className="mt-8 text-center border-t border-gray-800/50 pt-6">
+            <button type="button" onClick={() => {setIsSignUp(!isSignUp); setMessage('');}} className="text-[10px] font-black text-gray-500 uppercase tracking-widest hover:text-purple-400 transition-colors">
                 {isSignUp ? 'Already have an account? Log In' : 'Need an account? Sign Up'}
             </button>
         </div>
@@ -182,7 +137,7 @@ function LoginForm() {
 
 export default function LoginPage() {
     return (
-        <div className="min-h-screen bg-black flex flex-col justify-center items-center p-4 font-sans text-white">
+        <div className="min-h-screen bg-[#0a0a0a] flex flex-col justify-center items-center p-4 font-sans text-white">
             <Suspense fallback={<div className="animate-pulse font-black text-purple-500 uppercase tracking-widest text-xs">Loading Secure Portal...</div>}>
                 <LoginForm />
             </Suspense>

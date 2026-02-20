@@ -48,7 +48,7 @@ export default function Navbar() {
             <span className="font-black text-2xl tracking-tighter uppercase italic text-gray-100 group-hover:text-purple-400 transition-colors">Keep</span>
           </Link>
 
-          {/* Active Plant Switcher (Moved to Left) */}
+          {/* Active Plant Switcher */}
           <div className="hidden md:flex items-center gap-2 bg-gray-900 border border-gray-800 rounded-lg px-3 py-1.5 shadow-inner">
             <Shield size={14} className="text-purple-500" />
             <select 

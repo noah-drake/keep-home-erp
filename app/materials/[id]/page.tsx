@@ -33,7 +33,7 @@ function ItemMasterContent() {
   const [reorderPoint, setReorderPoint] = useState<number | ''>('')
   const [lotQuantity, setLotQuantity] = useState<number | ''>('')
 
-  // Master Data
+  // Relational Master Data
   const [categories, setCategories] = useState<any[]>([])
   const [units, setUnits] = useState<any[]>([])
   const [locations, setLocations] = useState<any[]>([])
@@ -46,9 +46,9 @@ function ItemMasterContent() {
       
       const [roleRes, catRes, unitRes, locRes, matRes, stockRes, sblRes, historyRes] = await Promise.all([
         user ? supabase.from('organization_members').select('role').eq('organization_id', organization.id).eq('user_id', user.id).single() : Promise.resolve({ data: null }),
-        supabase.from('categories').select('*').or(`organization_id.eq.${organization.id},organization_id.is.null`),
-        supabase.from('units').select('*').or(`organization_id.eq.${organization.id},organization_id.is.null`),
-        supabase.from('locations').select('*').eq('organization_id', organization.id),
+        supabase.from('categories').select('*').or(`organization_id.eq.${organization.id},organization_id.is.null`).order('name'),
+        supabase.from('units').select('*').or(`organization_id.eq.${organization.id},organization_id.is.null`).order('name'),
+        supabase.from('locations').select('*').eq('organization_id', organization.id).order('name'),
         supabase.from('materials').select('*').eq('id', itemId).single(),
         supabase.from('view_current_stock').select('current_stock').eq('material_id', itemId).single(),
         supabase.from('view_stock_by_location').select('location_id, quantity').eq('material_id', itemId),
@@ -76,6 +76,7 @@ function ItemMasterContent() {
         setDescription(matRes.data.description || '')
         setIsActive(matRes.data.is_active ?? true)
         setCategoryId(matRes.data.category_id || '')
+        // Legacy Fallback: If it has a string unit but no unit_id, try to find the matching ID
         setUnitId(matRes.data.unit_id || (unitRes.data?.find((u: any) => u.name === matRes.data.unit)?.id) || '')
         setLocationId(matRes.data.default_location_id || '')
         setReorderPoint(matRes.data.reorder_point ?? '')
@@ -86,11 +87,49 @@ function ItemMasterContent() {
     fetchData()
   }, [organization, itemId])
 
+  // INLINE CREATION LOGIC
+  const handleCategoryChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value
+    if (val === 'CREATE_NEW') {
+      const newName = prompt("Enter new Category name (e.g., 'Dairy', 'Hardware'):")
+      if (!newName) return
+      const { data, error } = await supabase.from('categories').insert([{ name: newName, organization_id: organization.id }]).select().single()
+      if (data) {
+        setCategories([...categories, data].sort((a, b) => a.name.localeCompare(b.name)))
+        setCategoryId(data.id)
+      } else if (error) alert(error.message)
+    } else {
+      setCategoryId(val)
+    }
+  }
+
+  const handleUnitChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value
+    if (val === 'CREATE_NEW') {
+      const newName = prompt("Enter Unit full name (e.g., 'Gallon'):")
+      if (!newName) return
+      const newAbbr = prompt("Enter Unit abbreviation (e.g., 'Gal'):") || newName
+      const { data, error } = await supabase.from('units').insert([{ name: newName, abbreviation: newAbbr, organization_id: organization.id }]).select().single()
+      if (data) {
+        setUnits([...units, data].sort((a, b) => a.name.localeCompare(b.name)))
+        setUnitId(data.id)
+      } else if (error) alert(error.message)
+    } else {
+      setUnitId(val)
+    }
+  }
+
   const handleSave = async () => {
     setSaving(true)
     const payload = {
-      name, description: description || null, is_active: isActive, category_id: categoryId || null, unit_id: unitId || null,
-      default_location_id: locationId || null, reorder_point: reorderPoint === '' ? null : Number(reorderPoint), lot_quantity: lotQuantity === '' ? null : Number(lotQuantity)
+      name, 
+      description: description || null, 
+      is_active: isActive, 
+      category_id: categoryId || null, 
+      unit_id: unitId || null,
+      default_location_id: locationId || null, 
+      reorder_point: reorderPoint === '' ? null : Number(reorderPoint), 
+      lot_quantity: lotQuantity === '' ? null : Number(lotQuantity)
     }
     const { error } = await supabase.from('materials').update(payload).eq('id', itemId)
     setSaving(false)
@@ -154,23 +193,27 @@ function ItemMasterContent() {
                </div>
                <div className="space-y-5">
                  <div><label className="lbl">Item Name</label>
-                   {isEditing ? <input value={name} onChange={e => setName(e.target.value)} className="inpt" /> : <p className="val">{name}</p>}</div>
+                   {isEditing ? <input value={name} onChange={e => setName(e.target.value)} className={inpt} /> : <p className="val">{name}</p>}</div>
                  <div><label className="lbl">Description / Notes</label>
-                   {isEditing ? <textarea value={description} onChange={e => setDescription(e.target.value)} className="inpt h-24 resize-none" placeholder="Add details..." /> : <p className="val italic text-gray-500">{description || 'No description provided.'}</p>}</div>
+                   {isEditing ? <textarea value={description} onChange={e => setDescription(e.target.value)} className={`${inpt} h-24 resize-none`} placeholder="Add details..." /> : <p className="val italic text-gray-500">{description || 'No description provided.'}</p>}</div>
                  <div className="grid grid-cols-2 gap-6">
                    <div><label className="lbl">Category</label>
                      {isEditing ? (
-                        <select value={categoryId} onChange={e => setCategoryId(e.target.value)} className="inpt">
-                          <option value="" className="bg-gray-900 text-white">Uncategorized</option>
-                          {categories.map(c => <option key={c.id} value={c.id} className="bg-gray-900 text-white">{c.name}</option>)}
+                        <select value={categoryId} onChange={handleCategoryChange} className={`${inpt} appearance-none`}>
+                          <option value="">-- Select Category --</option>
+                          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          <option disabled>──────────</option>
+                          <option value="CREATE_NEW" className="text-purple-400 font-black">+ Create New Category</option>
                         </select>
                      ) : <p className="val">{displayCategory}</p>}
                    </div>
                    <div><label className="lbl">Unit of Measure</label>
                      {isEditing ? (
-                        <select value={unitId} onChange={e => setUnitId(e.target.value)} className="inpt">
-                          <option value="" className="bg-gray-900 text-white">No Unit Set</option>
-                          {units.map(u => <option key={u.id} value={u.id} className="bg-gray-900 text-white">{u.name} ({u.abbreviation})</option>)}
+                        <select value={unitId} onChange={handleUnitChange} className={`${inpt} appearance-none`}>
+                          <option value="">-- Select Unit --</option>
+                          {units.map(u => <option key={u.id} value={u.id}>{u.name} ({u.abbreviation})</option>)}
+                          <option disabled>──────────</option>
+                          <option value="CREATE_NEW" className="text-purple-400 font-black">+ Create New Unit</option>
                         </select>
                      ) : <p className="val">{displayUnit}</p>}
                    </div>
@@ -183,17 +226,17 @@ function ItemMasterContent() {
                <div className="space-y-5">
                  <div><label className="lbl">Default Store</label>
                    {isEditing ? (
-                      <select value={locationId} onChange={e => setLocationId(e.target.value)} className="inpt focus:border-blue-500">
-                        <option value="" className="bg-gray-900 text-white">No Default Store</option>
-                        {locations.map(l => <option key={l.id} value={l.id} className="bg-gray-900 text-white">{l.name}</option>)}
+                      <select value={locationId} onChange={e => setLocationId(e.target.value)} className={`${inpt} focus:border-blue-500 appearance-none`}>
+                        <option value="">No Default Store</option>
+                        {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                       </select>
                    ) : <p className="val flex items-center gap-2"><MapPin size={14} className="text-gray-600"/> {displayLocation}</p>}
                  </div>
                  <div className="grid grid-cols-2 gap-6">
                    <div><label className="lbl">Reorder Point (MRP)</label>
-                     {isEditing ? <input type="number" value={reorderPoint} onChange={e => setReorderPoint(e.target.value === '' ? '' : Number(e.target.value))} className="inpt focus:border-yellow-500" placeholder="e.g. 5" /> : <p className={`val ${reorderPoint !== '' ? 'text-yellow-500' : 'text-gray-600'}`}>{reorderPoint !== '' ? reorderPoint : 'Not Set'}</p>}</div>
+                     {isEditing ? <input type="number" value={reorderPoint} onChange={e => setReorderPoint(e.target.value === '' ? '' : Number(e.target.value))} className={`${inpt} focus:border-yellow-500`} placeholder="e.g. 5" /> : <p className={`val ${reorderPoint !== '' ? 'text-yellow-500' : 'text-gray-600'}`}>{reorderPoint !== '' ? reorderPoint : 'Not Set'}</p>}</div>
                    <div><label className="lbl">Standard Lot Qty</label>
-                     {isEditing ? <input type="number" value={lotQuantity} onChange={e => setLotQuantity(e.target.value === '' ? '' : Number(e.target.value))} className="inpt focus:border-blue-500" placeholder="e.g. 12" /> : <p className="val">{lotQuantity !== '' ? lotQuantity : 'Not Set'}</p>}</div>
+                     {isEditing ? <input type="number" value={lotQuantity} onChange={e => setLotQuantity(e.target.value === '' ? '' : Number(e.target.value))} className={`${inpt} focus:border-blue-500`} placeholder="e.g. 12" /> : <p className="val">{lotQuantity !== '' ? lotQuantity : 'Not Set'}</p>}</div>
                  </div>
                </div>
             </div>
@@ -248,6 +291,5 @@ function ItemMasterContent() {
 // Reusable Tailwind classes for form elements
 const lbl = "block text-[9px] font-black uppercase tracking-widest text-gray-600 mb-2"
 const inpt = "w-full bg-black border border-gray-800 p-4 rounded-2xl outline-none focus:border-purple-500 transition-colors font-bold text-sm text-gray-200"
-const val = "font-bold text-sm text-gray-200 bg-black/50 p-4 rounded-2xl border border-gray-800/50"
 
 export default function ItemMasterPage() { return <Suspense fallback={<div className="min-h-screen bg-black"/>}><ItemMasterContent /></Suspense> }
