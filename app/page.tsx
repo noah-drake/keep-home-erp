@@ -215,14 +215,15 @@ function DashboardContent() {
                 {groupedData.map((group) => {
                   return (
                     // inline-block + break-inside-avoid forces perfect tight vertical stacking
-                    <section key={group.id} className="break-inside-avoid inline-block w-full mb-5 border border-gray-800/60 rounded-[1.5rem] bg-black overflow-hidden shadow-sm hover:border-gray-700 transition-colors">
-                      {/* Location Header */}
-                      <div className="bg-[#0f0f0f] flex items-center justify-between px-4 py-3.5 border-b border-gray-800/60">
+                    // Brightened Location Containers: bg-[#0f0f0f] instead of bg-black
+                    <section key={group.id} className="break-inside-avoid inline-block w-full mb-5 border border-gray-800 rounded-[1.5rem] bg-[#0f0f0f] overflow-hidden shadow-md hover:border-gray-600 transition-colors">
+                      {/* Location Header - Lifted to bg-[#171717] */}
+                      <div className="bg-[#171717] flex items-center justify-between px-4 py-3.5 border-b border-gray-800">
                         <Link href={`/locations/${group.id}`} className="flex items-center gap-2.5 group/loc">
                           <MapPin size={14} className="text-purple-500 group-hover/loc:scale-110 transition-transform" />
                           <h2 className="text-[11px] font-black uppercase tracking-widest text-gray-200 group-hover/loc:text-purple-400 transition-colors">{group.name}</h2>
                         </Link>
-                        <span className="text-[8px] font-black uppercase tracking-widest text-gray-500 bg-gray-900 px-2 py-1 rounded-md">{group.items.length}</span>
+                        <span className="text-[8px] font-black uppercase tracking-widest text-gray-400 bg-black px-2 py-1 rounded-md border border-gray-800/50">{group.items.length}</span>
                       </div>
 
                       {/* Item Rows */}
@@ -235,13 +236,13 @@ function DashboardContent() {
 
                 {/* UNASSIGNED ITEMS */}
                 {unassignedItems.length > 0 && (
-                  <section className="break-inside-avoid inline-block w-full mb-5 border border-yellow-900/30 rounded-[1.5rem] bg-black overflow-hidden shadow-sm">
-                    <div className="bg-yellow-950/10 flex items-center justify-between px-4 py-3.5 border-b border-yellow-900/30">
+                  <section className="break-inside-avoid inline-block w-full mb-5 border border-yellow-900/50 rounded-[1.5rem] bg-[#0f0f0f] overflow-hidden shadow-md">
+                    <div className="bg-yellow-950/20 flex items-center justify-between px-4 py-3.5 border-b border-yellow-900/50">
                       <div className="flex items-center gap-2.5">
                         <Package size={14} className="text-yellow-500" />
                         <h2 className="text-[11px] font-black uppercase tracking-widest text-yellow-500">Unassigned</h2>
                       </div>
-                      <span className="text-[8px] font-black uppercase tracking-widest text-yellow-700 bg-yellow-950/50 px-2 py-1 rounded-md">{unassignedItems.length}</span>
+                      <span className="text-[8px] font-black uppercase tracking-widest text-yellow-600 bg-yellow-950/50 px-2 py-1 rounded-md border border-yellow-900/50">{unassignedItems.length}</span>
                     </div>
                     <div className="flex flex-col">
                       {unassignedItems.map((item: any) => <StockRow key={item.id} item={item} router={router} />)}
@@ -271,7 +272,8 @@ function DashboardContent() {
                           {act.movement_type.includes('IN') ? <ArrowDownLeft size={10}/> : act.movement_type.includes('TRANSFER') ? <ArrowRightLeft size={10}/> : <ArrowUpRight size={10}/>}
                        </div>
                        <div className="truncate">
-                         <p className="text-[11px] font-bold text-gray-300 truncate">{act.materials?.name || 'Unknown'}</p>
+                         {/* Muted Italic Item Names for System Log Vibe */}
+                         <p className="text-[11px] font-semibold text-gray-500 italic truncate">{act.materials?.name || 'Unknown'}</p>
                          <p className="text-[8px] font-black uppercase tracking-widest text-gray-600 truncate mt-0.5">
                            {act.locations?.name || 'Unassigned'} 
                            <span className="text-gray-700 ml-1.5 font-medium tracking-normal normal-case">• {new Date(act.created_at).toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}</span>
@@ -302,7 +304,7 @@ function StockRow({ item, router }: { item: any, router: any }) {
   return (
     <div 
       onClick={() => router.push(`/materials/${item.material_id}`)}
-      className="flex items-center justify-between py-2.5 px-4 border-b border-gray-800/40 last:border-0 hover:bg-white/[0.02] transition-colors cursor-pointer group"
+      className="flex items-center justify-between py-2.5 px-4 border-b border-gray-800/40 last:border-0 hover:bg-[#1f1f1f] transition-colors cursor-pointer group"
     >
       <div className="flex items-center gap-3 truncate pr-4">
         <h3 className={`text-xs font-bold truncate transition-colors ${
