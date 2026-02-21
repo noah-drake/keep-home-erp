@@ -144,7 +144,7 @@ function DashboardContent() {
       <div className="max-w-[1600px] mx-auto">
         
         {/* ROW 1: ULTRA-DENSE HEADER */}
-        <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 border-b border-gray-800 pb-4 mb-6">
+        <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 border-b border-gray-800 pb-4 mb-6">
           <div className="flex-shrink-0">
             <h1 className="text-3xl font-black uppercase tracking-tighter italic text-gray-100 mb-1">Command Center</h1>
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">
@@ -199,10 +199,10 @@ function DashboardContent() {
         </header>
 
         {/* TWO COLUMN LAYOUT */}
-        <div className="flex flex-col xl:flex-row items-start gap-6 animate-in fade-in slide-in-from-bottom-4">
+        <div className="flex flex-col xl:flex-row items-start gap-8 animate-in fade-in slide-in-from-bottom-4">
           
-          {/* LEFT: VISUAL INVENTORY - AUTO-PACKING MASONRY */}
-          <div className="flex-1 flex flex-row flex-wrap items-start gap-5 w-full">
+          {/* LEFT: VISUAL INVENTORY - MASONRY FEED */}
+          <div className="flex-1 w-full">
             {groupedData.length === 0 && unassignedItems.length === 0 ? (
               <div className="w-full text-center py-20 bg-[#0f0f0f] border border-gray-800 rounded-[2.5rem]">
                 <Package size={48} className="mx-auto text-gray-700 mb-4" />
@@ -210,32 +210,21 @@ function DashboardContent() {
                 <p className="text-xs font-bold text-gray-600 mt-2">Activate items in your registry to see them on the dashboard.</p>
               </div>
             ) : (
-              <>
+              <div className="columns-1 md:columns-2 gap-6 space-y-6">
+                
                 {groupedData.map((group) => {
-                  const count = group.items.length
-                  // The wrapping magic: Small containers won't force line breaks if there's room.
-                  const sizeClass = count === 1 ? 'w-full sm:w-[260px]' : 
-                                    count === 2 ? 'w-full sm:w-[540px]' : 
-                                    'w-full'
-                  
-                  const gridClass = count === 1 ? 'grid-cols-1' : 
-                                    count === 2 ? 'grid-cols-1 sm:grid-cols-2' : 
-                                    'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3'
-
                   return (
-                    <section key={group.id} className={`bg-[#0f0f0f] border border-gray-800 p-5 rounded-[2.5rem] shadow-lg shrink-0 flex-grow-0 ${sizeClass}`}>
-                      <div className="flex items-center justify-between border-b border-gray-800/50 pb-3 mb-4">
+                    <section key={group.id} className="bg-[#0f0f0f] border border-gray-800 p-4 sm:p-5 rounded-[2rem] shadow-lg break-inside-avoid">
+                      <div className="flex items-center justify-between border-b border-gray-800/50 pb-3 mb-2 px-1">
                         <Link href={`/locations/${group.id}`} className="flex items-center gap-2.5 group/loc">
-                          <div className="w-7 h-7 bg-black border border-gray-800 rounded-lg flex items-center justify-center shadow-inner group-hover/loc:border-purple-500/50 transition-colors">
-                            <MapPin size={14} className="text-purple-500 group-hover/loc:scale-110 transition-transform" />
-                          </div>
-                          <h2 className="text-base font-black uppercase tracking-tight text-gray-200 leading-none truncate max-w-[180px] group-hover/loc:text-purple-400 transition-colors">{group.name}</h2>
+                          <MapPin size={14} className="text-purple-500 group-hover/loc:scale-110 transition-transform" />
+                          <h2 className="text-sm font-black uppercase tracking-widest text-gray-200 leading-none group-hover/loc:text-purple-400 transition-colors">{group.name}</h2>
                         </Link>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-gray-600 bg-gray-900 px-2 py-1 rounded-md">{count}</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-gray-600 bg-gray-900 px-2 py-1 rounded-md">{group.items.length}</span>
                       </div>
 
-                      <div className={`grid gap-3 ${gridClass}`}>
-                        {group.items.map((item: any) => <StockTile key={item.id} item={item} router={router} />)}
+                      <div className="flex flex-col">
+                        {group.items.map((item: any) => <StockRow key={item.id} item={item} router={router} />)}
                       </div>
                     </section>
                   )
@@ -243,28 +232,21 @@ function DashboardContent() {
 
                 {/* UNASSIGNED ITEMS */}
                 {unassignedItems.length > 0 && (
-                  <section className={`bg-yellow-950/10 border border-yellow-900/30 p-5 rounded-[2.5rem] shadow-lg shrink-0 flex-grow-0 ${
-                    unassignedItems.length === 1 ? 'w-full sm:w-[260px]' : 
-                    unassignedItems.length === 2 ? 'w-full sm:w-[540px]' : 
-                    'w-full'
-                  }`}>
-                    <div className="flex items-center justify-between border-b border-yellow-900/30 pb-3 mb-4">
+                  <section className="bg-yellow-950/10 border border-yellow-900/30 p-4 sm:p-5 rounded-[2rem] shadow-lg break-inside-avoid">
+                    <div className="flex items-center justify-between border-b border-yellow-900/30 pb-3 mb-2 px-1">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 bg-black border border-yellow-900/50 rounded-lg flex items-center justify-center shadow-inner"><Package size={14} className="text-yellow-500" /></div>
-                        <h2 className="text-base font-black uppercase tracking-tight text-yellow-500 leading-none truncate max-w-[180px]">Unassigned</h2>
+                        <Package size={14} className="text-yellow-500" />
+                        <h2 className="text-sm font-black uppercase tracking-widest text-yellow-500 leading-none">Unassigned</h2>
                       </div>
                       <span className="text-[9px] font-black uppercase tracking-widest text-yellow-700 bg-yellow-950/50 px-2 py-1 rounded-md">{unassignedItems.length}</span>
                     </div>
-                    <div className={`grid gap-3 ${
-                      unassignedItems.length === 1 ? 'grid-cols-1' : 
-                      unassignedItems.length === 2 ? 'grid-cols-1 sm:grid-cols-2' : 
-                      'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3'
-                    }`}>
-                      {unassignedItems.map((item: any) => <StockTile key={item.id} item={item} router={router} />)}
+                    <div className="flex flex-col">
+                      {unassignedItems.map((item: any) => <StockRow key={item.id} item={item} router={router} />)}
                     </div>
                   </section>
                 )}
-              </>
+
+              </div>
             )}
           </div>
 
@@ -278,7 +260,7 @@ function DashboardContent() {
 
                <div className="relative z-10">
                  <div className="flex items-center justify-between border-b border-gray-800/50 pb-4 mb-5">
-                     <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14} className="text-purple-500/70"/> Ledger Feed</h3>
+                     <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14} className="text-purple-500/70"/> System Log</h3>
                      <Link href="/history" className="text-[9px] text-purple-400 font-black tracking-widest hover:text-white transition-colors bg-purple-500/10 hover:bg-purple-500/20 px-3 py-1.5 rounded-lg uppercase">View All</Link>
                  </div>
                  
@@ -312,8 +294,8 @@ function DashboardContent() {
   )
 }
 
-// Sub-component for individual stock cards
-function StockTile({ item, router }: { item: any, router: any }) {
+// Sleek Feed-Style Row Component
+function StockRow({ item, router }: { item: any, router: any }) {
   const threshold = item.is_mrp_enabled ? (item.reorder_point || 0) : 0
   const isOut = item.quantity <= 0
   const isLowStock = !isOut && item.quantity <= threshold
@@ -321,53 +303,49 @@ function StockTile({ item, router }: { item: any, router: any }) {
   return (
     <div 
       onClick={() => router.push(`/materials/${item.material_id}`)}
-      className={`cursor-pointer border p-3.5 rounded-2xl transition-all group relative overflow-hidden flex flex-col justify-between min-h-[90px] shadow-sm hover:shadow-md ${
-        isOut ? 'bg-red-950/10 border-red-900/40 hover:border-red-500/60' :
-        isLowStock ? 'bg-yellow-950/10 border-yellow-900/40 hover:border-yellow-500/60' : 
-        'bg-black border-gray-800 hover:border-purple-500/50'
-      }`}
+      className="flex items-center justify-between py-3 px-3 border-b border-gray-800/40 last:border-0 hover:bg-[#1a1a1a] rounded-xl transition-colors cursor-pointer group"
     >
-      <div className="flex justify-between items-start gap-2">
-        <h3 className={`text-[11px] font-bold leading-tight transition-colors line-clamp-2 ${
-          isOut ? 'text-red-200 group-hover:text-red-100' : 
-          isLowStock ? 'text-yellow-200 group-hover:text-yellow-100' : 
+      <div className="flex items-center gap-3 truncate pr-4">
+        <h3 className={`text-xs font-bold truncate transition-colors ${
+          isOut ? 'text-red-400 group-hover:text-red-300' : 
+          isLowStock ? 'text-yellow-400 group-hover:text-yellow-300' : 
           'text-gray-300 group-hover:text-white'
         }`}>
           {item.name}
         </h3>
-        
-        {/* Quick Transact Button (Replaces the Alert Icon on Hover) */}
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="group-hover:hidden">
-            {isOut ? <AlertCircle size={14} className="text-red-500" /> : 
-             isLowStock ? <AlertCircle size={14} className="text-yellow-500" /> : null}
-          </div>
-          
-          <button 
-            onClick={(e) => { e.stopPropagation(); router.push(`/inventory?material_id=${item.material_id}`) }}
-            className={`hidden group-hover:flex p-1 rounded-md transition-colors ${
-              isOut ? 'bg-red-900/50 text-red-100 hover:bg-red-500' : 
-              isLowStock ? 'bg-yellow-900/50 text-yellow-100 hover:bg-yellow-500' : 
-              'bg-gray-900 text-purple-400 hover:bg-purple-500/20'
-            }`}
-            title="Quick Transact"
-          >
-             <ArrowRightLeft size={12} />
-          </button>
-        </div>
       </div>
       
-      <div className="mt-2 flex items-end justify-between">
-        <p className={`text-[8px] font-black uppercase tracking-widest truncate max-w-[50px] ${
-          isOut ? 'text-red-500/70' : isLowStock ? 'text-yellow-600' : 'text-gray-600'
-        }`}>
-          {item.unit}
-        </p>
-        <p className={`text-2xl font-black tracking-tighter leading-none ${
-          isOut ? 'text-red-500' : isLowStock ? 'text-yellow-500' : 'text-purple-400'
-        }`}>
-          {item.quantity}
-        </p>
+      <div className="flex items-center gap-4 shrink-0">
+        {/* Dynamic Warning Icon */}
+        <div className="flex items-center justify-center w-4 h-4 group-hover:hidden">
+          {isOut ? <AlertCircle size={14} className="text-red-500" /> : 
+           isLowStock ? <AlertCircle size={14} className="text-yellow-500" /> : null}
+        </div>
+        
+        {/* Quick Transact Button (Appears on Hover) */}
+        <button 
+          onClick={(e) => { e.stopPropagation(); router.push(`/inventory?material_id=${item.material_id}`) }}
+          className={`hidden group-hover:flex items-center justify-center w-6 h-6 rounded-md transition-colors ${
+            isOut ? 'bg-red-900/50 text-red-100 hover:bg-red-500' : 
+            isLowStock ? 'bg-yellow-900/50 text-yellow-100 hover:bg-yellow-500' : 
+            'bg-gray-800 text-purple-400 hover:bg-purple-500 hover:text-white'
+          }`}
+          title="Quick Transact"
+        >
+           <ArrowRightLeft size={12} />
+        </button>
+
+        {/* Value Data */}
+        <div className="text-right flex flex-col justify-center min-w-[2.5rem]">
+          <p className={`text-sm font-black leading-none ${
+            isOut ? 'text-red-500' : isLowStock ? 'text-yellow-500' : 'text-purple-400'
+          }`}>
+            {item.quantity}
+          </p>
+          <p className="text-[8px] font-black uppercase tracking-widest text-gray-500 mt-1">
+            {item.unit}
+          </p>
+        </div>
       </div>
     </div>
   )
