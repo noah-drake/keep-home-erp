@@ -250,7 +250,7 @@ function DashboardContent() {
             )}
           </div>
 
-          {/* RIGHT: RECESSED TELEMETRY FEED */}
+          {/* RIGHT: RECESSED TELEMETRY FEED (Line/Table Style) */}
           <div className="w-full xl:w-[360px] shrink-0">
             <div className="relative bg-black/60 backdrop-blur-2xl border border-gray-800/60 rounded-[2.5rem] p-6 shadow-[inset_0_0_40px_rgba(0,0,0,0.6)] sticky top-24 overflow-hidden">
                
@@ -259,25 +259,30 @@ function DashboardContent() {
                <div className="absolute inset-0 bg-gradient-to-b from-purple-900/5 to-transparent pointer-events-none"></div>
 
                <div className="relative z-10">
-                 <div className="flex items-center justify-between border-b border-gray-800/50 pb-4 mb-5">
+                 <div className="flex items-center justify-between border-b border-gray-800/50 pb-4 mb-2">
                      <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14} className="text-purple-500/70"/> System Log</h3>
                      <Link href="/history" className="text-[9px] text-purple-400 font-black tracking-widest hover:text-white transition-colors bg-purple-500/10 hover:bg-purple-500/20 px-3 py-1.5 rounded-lg uppercase">View All</Link>
                  </div>
                  
-                 <div className="flex flex-col gap-3">
+                 <div className="flex flex-col">
                    {recentActivity.length === 0 ? (
                      <p className="text-[10px] text-gray-600 font-bold italic py-4 text-center">No recent movements.</p>
                    ) : (
                      recentActivity.map(act => (
-                       <div key={act.id} className="flex items-center gap-3 bg-[#0f0f0f]/80 border border-gray-800/60 p-3 rounded-2xl group hover:bg-[#1a1a1a] transition-colors">
-                         <div className={`shrink-0 w-8 h-8 rounded-xl flex items-center justify-center border ${act.movement_type.includes('IN') ? 'bg-purple-900/20 border-purple-500/30 text-purple-400' : act.movement_type.includes('TRANSFER') ? 'bg-blue-900/20 border-blue-500/30 text-blue-400' : 'bg-yellow-900/20 border-yellow-500/30 text-yellow-500'}`}>
-                            {act.movement_type.includes('IN') ? <ArrowDownLeft size={12}/> : act.movement_type.includes('TRANSFER') ? <ArrowRightLeft size={12}/> : <ArrowUpRight size={12}/>}
+                       <div key={act.id} className="flex items-center justify-between py-2.5 border-b border-gray-800/30 last:border-0 group hover:bg-white/[0.02] px-2 -mx-2 rounded-lg transition-colors cursor-default">
+                         <div className="flex items-center gap-3 overflow-hidden">
+                           <div className={`shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-black/50 border ${act.movement_type.includes('IN') ? 'border-purple-500/30 text-purple-400' : act.movement_type.includes('TRANSFER') ? 'border-blue-500/30 text-blue-400' : 'border-yellow-500/30 text-yellow-500'}`}>
+                              {act.movement_type.includes('IN') ? <ArrowDownLeft size={10}/> : act.movement_type.includes('TRANSFER') ? <ArrowRightLeft size={10}/> : <ArrowUpRight size={10}/>}
+                           </div>
+                           <div className="truncate">
+                             <p className="text-[11px] font-bold text-gray-300 truncate group-hover:text-white transition-colors">{act.materials?.name || 'Unknown'}</p>
+                             <p className="text-[8px] font-black uppercase tracking-widest text-gray-600 truncate mt-0.5">
+                               {act.locations?.name || 'Unassigned'} 
+                               <span className="text-gray-700 ml-1.5 font-medium tracking-normal normal-case">• {new Date(act.created_at).toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}</span>
+                             </p>
+                           </div>
                          </div>
-                         <div className="truncate flex-1">
-                           <p className="text-[10px] font-bold text-gray-300 truncate group-hover:text-white transition-colors">{act.materials?.name || 'Unknown'}</p>
-                           <p className="text-[8px] font-black uppercase tracking-widest text-gray-600 truncate mt-0.5">{act.locations?.name || 'Unassigned'}</p>
-                         </div>
-                         <span className={`shrink-0 text-xs font-black ${act.quantity > 0 ? 'text-purple-400' : 'text-yellow-500'}`}>
+                         <span className={`shrink-0 text-xs font-black ml-3 ${act.quantity > 0 ? 'text-purple-400' : 'text-yellow-500'}`}>
                            {act.quantity > 0 ? `+${act.quantity}` : act.quantity}
                          </span>
                        </div>
@@ -294,7 +299,7 @@ function DashboardContent() {
   )
 }
 
-// Sleek Feed-Style Row Component
+// Sleek Feed-Style Row Component for Inventory Items
 function StockRow({ item, router }: { item: any, router: any }) {
   const threshold = item.is_mrp_enabled ? (item.reorder_point || 0) : 0
   const isOut = item.quantity <= 0
