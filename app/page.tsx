@@ -16,7 +16,8 @@ function DashboardContent() {
   const router = useRouter()
   const { organization } = useOrganization()
   
-  const [groupedData, setGroupedData] = useState<any[]>([])
+  const [activeLocs, setActiveLocs] = useState<any[]>([])
+  const [ghostLocs, setGhostLocs] = useState<any[]>([])
   const [unassignedItems, setUnassignedItems] = useState<any[]>([])
   const [totalItems, setTotalItems] = useState<number | null>(null)
   
@@ -84,14 +85,19 @@ function DashboardContent() {
     setLowStockCount(lowStockTracker)
     setMrpItemCount(mrpTracker)
 
-    const newGroupedData = locationsList.map(loc => ({
-      ...loc,
-      items: displayCards.filter(card => card.location_id === loc.id).sort((a, b) => a.name.localeCompare(b.name))
-    })).filter(loc => loc.items.length > 0)
+    // Process locations with items vs ghost locations, plus add default items count
+    const processedLocations = locationsList.map(loc => {
+      const items = displayCards.filter(card => card.location_id === loc.id).sort((a, b) => a.name.localeCompare(b.name))
+      const defaultCount = materialsList.filter(m => m.default_location_id === loc.id).length
+      return { ...loc, items, defaultCount }
+    })
 
+    const active = processedLocations.filter(loc => loc.items.length > 0)
+    const ghost = processedLocations.filter(loc => loc.items.length === 0)
     const newUnassignedItems = displayCards.filter(card => !card.location_id).sort((a, b) => a.name.localeCompare(b.name))
 
-    setGroupedData(newGroupedData)
+    setActiveLocs(active)
+    setGhostLocs(ghost)
     setUnassignedItems(newUnassignedItems)
     setTotalItems(countRes.count || 0)
     
@@ -141,12 +147,12 @@ function DashboardContent() {
   // ==========================================
   return (
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
-      <div className="max-w-[1500px] mx-auto">
+      <div className="max-w-[1600px] mx-auto">
         
         {/* ROW 1: TIGHTLY PACKED HEADER */}
         <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-5 border-b border-gray-800 pb-5 mb-6">
           <div className="flex-shrink-0">
-            <h1 className="text-3xl font-black uppercase tracking-tighter italic text-gray-100 leading-none">Command Center</h1>
+            <h1 className="text-3xl font-black uppercase tracking-tighter italic text-gray-100 leading-none">Keep Nexus</h1>
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2 mt-1.5">
               <Shield size={12} className="text-purple-500" /> {organization.name} Operations
             </p>
@@ -203,7 +209,7 @@ function DashboardContent() {
           
           {/* LEFT: VISUAL INVENTORY - CSS MASONRY */}
           <div className="flex-1 w-full">
-            {groupedData.length === 0 && unassignedItems.length === 0 ? (
+            {activeLocs.length === 0 && unassignedItems.length === 0 && ghostLocs.length === 0 ? (
               <div className="w-full text-center py-20 border border-dashed border-gray-800 rounded-3xl">
                 <Package size={32} className="mx-auto text-gray-700 mb-3" />
                 <h2 className="text-sm font-black uppercase tracking-widest text-gray-500">All Master Items Inactive</h2>
@@ -212,43 +218,85 @@ function DashboardContent() {
               // The Magic Masonry Container
               <div className="columns-1 md:columns-2 gap-5 w-full">
                 
-                {groupedData.map((group) => {
+                {/* 1. ACTIVE LOCATIONS */}
+                {activeLocs.map((group) => {
                   return (
-                    // inline-block + break-inside-avoid forces perfect tight vertical stacking
-                    // Brightened Location Containers: bg-[#0f0f0f] instead of bg-black
-                    <section key={group.id} className="break-inside-avoid inline-block w-full mb-5 border border-gray-800 rounded-[1.5rem] bg-[#0f0f0f] overflow-hidden shadow-md hover:border-gray-600 transition-colors">
-                      {/* Location Header - Lifted to bg-[#171717] */}
-                      <div className="bg-[#171717] flex items-center justify-between px-4 py-3.5 border-b border-gray-800">
+                    // Lightened Location Containers: bg-[#121212]
+                    <section key={group.id} className="break-inside-avoid inline-block w-full mb-5 border border-gray-800/80 rounded-[1.5rem] bg-[#121212] overflow-hidden shadow-lg hover:border-gray-600 transition-colors">
+                      {/* Location Header - Lifted to bg-[#1a1a1a] */}
+                      <div className="bg-[#1a1a1a] flex items-center justify-between px-4 py-3.5 border-b border-gray-800/80">
                         <Link href={`/locations/${group.id}`} className="flex items-center gap-2.5 group/loc">
                           <MapPin size={14} className="text-purple-500 group-hover/loc:scale-110 transition-transform" />
-                          <h2 className="text-[11px] font-black uppercase tracking-widest text-gray-200 group-hover/loc:text-purple-400 transition-colors">{group.name}</h2>
+                          <h2 className="text-[11px] font-black uppercase tracking-widest text-gray-100 group-hover/loc:text-purple-400 transition-colors">{group.name}</h2>
                         </Link>
-                        <span className="text-[8px] font-black uppercase tracking-widest text-gray-400 bg-black px-2 py-1 rounded-md border border-gray-800/50">{group.items.length}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[7px] font-black uppercase tracking-widest text-gray-500 bg-black/60 px-2 py-1.5 rounded-md border border-gray-800">{group.defaultCount} Default</span>
+                          <span className="text-[8px] font-black uppercase tracking-widest text-purple-400 bg-purple-900/20 px-2 py-1 rounded-md border border-purple-500/30">{group.items.length} On Hand</span>
+                        </div>
                       </div>
 
                       {/* Item Rows */}
                       <div className="flex flex-col">
                         {group.items.map((item: any) => <StockRow key={item.id} item={item} router={router} />)}
+                        
+                        {/* Quick Add Row */}
+                        <Link href={`/materials/new?location_id=${group.id}`} className="flex items-center gap-2 py-2.5 px-4 text-[9px] font-black uppercase tracking-widest text-gray-600 hover:text-purple-400 hover:bg-white/[0.04] transition-colors border-t border-gray-800/40">
+                          <Plus size={12} /> Add to {group.name}
+                        </Link>
                       </div>
                     </section>
                   )
                 })}
 
-                {/* UNASSIGNED ITEMS */}
+                {/* 2. UNASSIGNED ITEMS */}
                 {unassignedItems.length > 0 && (
-                  <section className="break-inside-avoid inline-block w-full mb-5 border border-yellow-900/50 rounded-[1.5rem] bg-[#0f0f0f] overflow-hidden shadow-md">
+                  <section className="break-inside-avoid inline-block w-full mb-5 border border-yellow-900/50 rounded-[1.5rem] bg-[#121212] overflow-hidden shadow-lg">
                     <div className="bg-yellow-950/20 flex items-center justify-between px-4 py-3.5 border-b border-yellow-900/50">
                       <div className="flex items-center gap-2.5">
                         <Package size={14} className="text-yellow-500" />
                         <h2 className="text-[11px] font-black uppercase tracking-widest text-yellow-500">Unassigned</h2>
                       </div>
-                      <span className="text-[8px] font-black uppercase tracking-widest text-yellow-600 bg-yellow-950/50 px-2 py-1 rounded-md border border-yellow-900/50">{unassignedItems.length}</span>
+                      <span className="text-[8px] font-black uppercase tracking-widest text-yellow-600 bg-yellow-950/50 px-2 py-1 rounded-md border border-yellow-900/50">{unassignedItems.length} On Hand</span>
                     </div>
                     <div className="flex flex-col">
                       {unassignedItems.map((item: any) => <StockRow key={item.id} item={item} router={router} />)}
                     </div>
                   </section>
                 )}
+
+                {/* 3. ADD STORE BUTTON TILE */}
+                <button onClick={() => router.push('/locations')} className="break-inside-avoid inline-block w-full mb-5 border-2 border-dashed border-gray-800 hover:border-purple-500/50 rounded-[1.5rem] bg-transparent hover:bg-[#121212] transition-all p-6 group text-gray-600 hover:text-purple-400 cursor-pointer shadow-sm">
+                   <div className="flex flex-col items-center justify-center gap-3">
+                     <div className="w-10 h-10 rounded-full bg-black border border-gray-800 group-hover:border-purple-500/30 flex items-center justify-center shadow-inner">
+                       <Plus size={16} />
+                     </div>
+                     <h3 className="text-[10px] font-black uppercase tracking-widest">Establish New Chamber</h3>
+                   </div>
+                </button>
+
+                {/* 4. GHOST LOCATIONS (Exist, but empty) */}
+                {ghostLocs.map((group) => {
+                  return (
+                    <section key={group.id} className="break-inside-avoid inline-block w-full mb-5 border border-gray-800/80 rounded-[1.5rem] bg-[#121212] overflow-hidden shadow-sm hover:border-gray-600 transition-colors opacity-80 hover:opacity-100">
+                      <div className="bg-[#1a1a1a] flex items-center justify-between px-4 py-3.5 border-b border-gray-800/80">
+                        <Link href={`/locations/${group.id}`} className="flex items-center gap-2.5 group/loc">
+                          <MapPin size={14} className="text-gray-500 group-hover/loc:scale-110 transition-transform" />
+                          <h2 className="text-[11px] font-black uppercase tracking-widest text-gray-400 group-hover/loc:text-gray-200 transition-colors">{group.name}</h2>
+                        </Link>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[7px] font-black uppercase tracking-widest text-gray-600 bg-black/60 px-2 py-1.5 rounded-md border border-gray-800">{group.defaultCount} Default</span>
+                          <span className="text-[8px] font-black uppercase tracking-widest text-gray-600 bg-gray-900 px-2 py-1 rounded-md border border-gray-800/50">Empty</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col">
+                        <Link href={`/materials/new?location_id=${group.id}`} className="flex items-center justify-center gap-2 py-4 px-4 text-[9px] font-black uppercase tracking-widest text-gray-600 hover:text-purple-400 hover:bg-white/[0.04] transition-colors">
+                          <Plus size={12} /> Add First Item
+                        </Link>
+                      </div>
+                    </section>
+                  )
+                })}
 
               </div>
             )}
@@ -304,7 +352,7 @@ function StockRow({ item, router }: { item: any, router: any }) {
   return (
     <div 
       onClick={() => router.push(`/materials/${item.material_id}`)}
-      className="flex items-center justify-between py-2.5 px-4 border-b border-gray-800/40 last:border-0 hover:bg-[#1f1f1f] transition-colors cursor-pointer group"
+      className="flex items-center justify-between py-2.5 px-4 border-b border-gray-800/40 last:border-0 hover:bg-white/[0.04] transition-colors cursor-pointer group"
     >
       <div className="flex items-center gap-3 truncate pr-4">
         <h3 className={`text-xs font-bold truncate transition-colors ${
