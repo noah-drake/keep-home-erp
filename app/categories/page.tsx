@@ -24,7 +24,6 @@ function CategoriesContent() {
     const { data } = await supabase
       .from('categories')
       .select('*')
-      .or(`organization_id.eq.${organization.id},organization_id.is.null`)
       .order('name')
     if (data) setCategories(data)
     setLoading(false)

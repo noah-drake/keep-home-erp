@@ -26,7 +26,6 @@ function UnitsContent() {
     const { data } = await supabase
       .from('units')
       .select('*')
-      .or(`organization_id.eq.${organization.id},organization_id.is.null`)
       .order('name')
     if (data) setUnits(data)
     setLoading(false)
