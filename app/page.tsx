@@ -141,35 +141,35 @@ function DashboardContent() {
   // ==========================================
   return (
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
-      <div className="max-w-[1600px] mx-auto">
+      <div className="max-w-[1500px] mx-auto">
         
-        {/* ROW 1: ULTRA-DENSE HEADER */}
-        <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 border-b border-gray-800 pb-4 mb-6">
+        {/* ROW 1: TIGHTLY PACKED HEADER */}
+        <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-5 border-b border-gray-800 pb-5 mb-6">
           <div className="flex-shrink-0">
-            <h1 className="text-3xl font-black uppercase tracking-tighter italic text-gray-100 mb-1">Command Center</h1>
-            <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">
+            <h1 className="text-3xl font-black uppercase tracking-tighter italic text-gray-100 leading-none">Command Center</h1>
+            <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2 mt-1.5">
               <Shield size={12} className="text-purple-500" /> {organization.name} Operations
             </p>
           </div>
 
           <div className="flex flex-wrap xl:flex-nowrap items-center justify-start xl:justify-end gap-3 flex-1">
             
-            {/* System Pulse - Tight integration */}
-            <div className="flex items-center gap-4 bg-[#0f0f0f] border border-gray-800 px-4 py-2 rounded-2xl shadow-sm">
+            {/* System Pulse - Embedded in Header */}
+            <div className="flex items-center gap-4 bg-black border border-gray-800/60 px-4 py-2 rounded-xl">
               <div className="flex items-center gap-2.5">
-                <Package size={14} className="text-purple-500" />
-                <div>
-                  <p className="text-[8px] font-black uppercase tracking-widest text-purple-400 leading-none">Active</p>
-                  <p className="text-lg font-black tracking-tighter leading-none mt-1">{totalItems}</p>
+                <Package size={14} className="text-gray-500" />
+                <div className="flex items-baseline gap-1.5">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-gray-500">Active</p>
+                  <p className="text-lg font-black tracking-tighter text-gray-200">{totalItems}</p>
                 </div>
               </div>
-              <div className="w-px h-6 bg-gray-800"></div>
+              <div className="w-px h-5 bg-gray-800"></div>
               <div className="flex items-center gap-2.5">
-                <TrendingUp size={14} className="text-yellow-500" />
-                <div>
-                  <p className="text-[8px] font-black uppercase tracking-widest text-yellow-500 leading-none">Restock</p>
-                  <p className="text-lg font-black tracking-tighter leading-none mt-1 flex items-baseline gap-1">
-                    {lowStockCount} <span className="text-xs text-gray-600 font-bold">/ {mrpItemCount} MRP</span>
+                <TrendingUp size={14} className="text-yellow-600" />
+                <div className="flex items-baseline gap-1.5">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-yellow-600">Restock</p>
+                  <p className="text-lg font-black tracking-tighter text-yellow-500 flex items-baseline gap-1">
+                    {lowStockCount} <span className="text-[10px] text-gray-500 font-bold">/ {mrpItemCount} MRP</span>
                   </p>
                 </div>
               </div>
@@ -177,19 +177,19 @@ function DashboardContent() {
 
             {/* Quick Actions - Compact */}
             <div className="flex items-center gap-2">
-              <button onClick={() => router.push('/inventory')} className="bg-[#0f0f0f] border border-gray-800 hover:border-purple-500 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-sm group">
+              <button onClick={() => router.push('/inventory')} className="bg-[#0f0f0f] border border-gray-800 hover:border-purple-500 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all group">
                 <ArrowRightLeft size={14} className="text-purple-500 group-hover:scale-110 transition-transform" />
                 <span className="text-[9px] font-black uppercase tracking-widest text-gray-300">Transact</span>
               </button>
-              <button onClick={() => router.push('/inventory/count')} className="bg-[#0f0f0f] border border-gray-800 hover:border-blue-500 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-sm group">
+              <button onClick={() => router.push('/inventory/count')} className="bg-[#0f0f0f] border border-gray-800 hover:border-blue-500 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all group">
                 <ClipboardCheck size={14} className="text-blue-500 group-hover:scale-110 transition-transform" />
                 <span className="text-[9px] font-black uppercase tracking-widest text-gray-300 hidden sm:block">Audit</span>
               </button>
-              <button onClick={() => router.push('/materials/new')} className="bg-[#0f0f0f] border border-gray-800 hover:border-green-500 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-sm group">
+              <button onClick={() => router.push('/materials/new')} className="bg-[#0f0f0f] border border-gray-800 hover:border-green-500 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all group">
                 <Plus size={14} className="text-green-500 group-hover:scale-110 transition-transform" />
                 <span className="text-[9px] font-black uppercase tracking-widest text-gray-300 hidden sm:block">Item</span>
               </button>
-              <button onClick={() => router.push('/shopping-list')} className="bg-[#0f0f0f] border border-gray-800 hover:border-yellow-500 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-sm group relative overflow-hidden">
+              <button onClick={() => router.push('/shopping-list')} className="bg-[#0f0f0f] border border-gray-800 hover:border-yellow-500 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all group relative overflow-hidden">
                 {lowStockCount > 0 && <span className="absolute top-0 right-0 w-full h-full bg-yellow-500/10 pointer-events-none animate-pulse"></span>}
                 <ShoppingCart size={14} className="text-yellow-500 group-hover:scale-110 transition-transform" />
                 <span className="text-[9px] font-black uppercase tracking-widest text-gray-300 hidden sm:block relative z-10">Shop</span>
@@ -198,31 +198,34 @@ function DashboardContent() {
           </div>
         </header>
 
-        {/* TWO COLUMN LAYOUT */}
+        {/* MAIN LAYOUT: LOCATIONS (LEFT) | LEDGER (RIGHT) */}
         <div className="flex flex-col xl:flex-row items-start gap-8 animate-in fade-in slide-in-from-bottom-4">
           
-          {/* LEFT: VISUAL INVENTORY - MASONRY FEED */}
+          {/* LEFT: VISUAL INVENTORY - CSS MASONRY */}
           <div className="flex-1 w-full">
             {groupedData.length === 0 && unassignedItems.length === 0 ? (
-              <div className="w-full text-center py-20 bg-[#0f0f0f] border border-gray-800 rounded-[2.5rem]">
-                <Package size={48} className="mx-auto text-gray-700 mb-4" />
-                <h2 className="text-xl font-black uppercase tracking-tight text-gray-400">All Master Items Inactive</h2>
-                <p className="text-xs font-bold text-gray-600 mt-2">Activate items in your registry to see them on the dashboard.</p>
+              <div className="w-full text-center py-20 border border-dashed border-gray-800 rounded-3xl">
+                <Package size={32} className="mx-auto text-gray-700 mb-3" />
+                <h2 className="text-sm font-black uppercase tracking-widest text-gray-500">All Master Items Inactive</h2>
               </div>
             ) : (
-              <div className="columns-1 md:columns-2 gap-6 space-y-6">
+              // The Magic Masonry Container
+              <div className="columns-1 md:columns-2 gap-5 w-full">
                 
                 {groupedData.map((group) => {
                   return (
-                    <section key={group.id} className="bg-[#0f0f0f] border border-gray-800 p-4 sm:p-5 rounded-[2rem] shadow-lg break-inside-avoid">
-                      <div className="flex items-center justify-between border-b border-gray-800/50 pb-3 mb-2 px-1">
+                    // inline-block + break-inside-avoid forces perfect tight vertical stacking
+                    <section key={group.id} className="break-inside-avoid inline-block w-full mb-5 border border-gray-800/60 rounded-[1.5rem] bg-black overflow-hidden shadow-sm hover:border-gray-700 transition-colors">
+                      {/* Location Header */}
+                      <div className="bg-[#0f0f0f] flex items-center justify-between px-4 py-3.5 border-b border-gray-800/60">
                         <Link href={`/locations/${group.id}`} className="flex items-center gap-2.5 group/loc">
                           <MapPin size={14} className="text-purple-500 group-hover/loc:scale-110 transition-transform" />
-                          <h2 className="text-sm font-black uppercase tracking-widest text-gray-200 leading-none group-hover/loc:text-purple-400 transition-colors">{group.name}</h2>
+                          <h2 className="text-[11px] font-black uppercase tracking-widest text-gray-200 group-hover/loc:text-purple-400 transition-colors">{group.name}</h2>
                         </Link>
-                        <span className="text-[9px] font-black uppercase tracking-widest text-gray-600 bg-gray-900 px-2 py-1 rounded-md">{group.items.length}</span>
+                        <span className="text-[8px] font-black uppercase tracking-widest text-gray-500 bg-gray-900 px-2 py-1 rounded-md">{group.items.length}</span>
                       </div>
 
+                      {/* Item Rows */}
                       <div className="flex flex-col">
                         {group.items.map((item: any) => <StockRow key={item.id} item={item} router={router} />)}
                       </div>
@@ -232,13 +235,13 @@ function DashboardContent() {
 
                 {/* UNASSIGNED ITEMS */}
                 {unassignedItems.length > 0 && (
-                  <section className="bg-yellow-950/10 border border-yellow-900/30 p-4 sm:p-5 rounded-[2rem] shadow-lg break-inside-avoid">
-                    <div className="flex items-center justify-between border-b border-yellow-900/30 pb-3 mb-2 px-1">
+                  <section className="break-inside-avoid inline-block w-full mb-5 border border-yellow-900/30 rounded-[1.5rem] bg-black overflow-hidden shadow-sm">
+                    <div className="bg-yellow-950/10 flex items-center justify-between px-4 py-3.5 border-b border-yellow-900/30">
                       <div className="flex items-center gap-2.5">
                         <Package size={14} className="text-yellow-500" />
-                        <h2 className="text-sm font-black uppercase tracking-widest text-yellow-500 leading-none">Unassigned</h2>
+                        <h2 className="text-[11px] font-black uppercase tracking-widest text-yellow-500">Unassigned</h2>
                       </div>
-                      <span className="text-[9px] font-black uppercase tracking-widest text-yellow-700 bg-yellow-950/50 px-2 py-1 rounded-md">{unassignedItems.length}</span>
+                      <span className="text-[8px] font-black uppercase tracking-widest text-yellow-700 bg-yellow-950/50 px-2 py-1 rounded-md">{unassignedItems.length}</span>
                     </div>
                     <div className="flex flex-col">
                       {unassignedItems.map((item: any) => <StockRow key={item.id} item={item} router={router} />)}
@@ -250,47 +253,38 @@ function DashboardContent() {
             )}
           </div>
 
-          {/* RIGHT: RECESSED TELEMETRY FEED (Line/Table Style) */}
-          <div className="w-full xl:w-[360px] shrink-0">
-            <div className="relative bg-black/60 backdrop-blur-2xl border border-gray-800/60 rounded-[2.5rem] p-6 shadow-[inset_0_0_40px_rgba(0,0,0,0.6)] sticky top-24 overflow-hidden">
-               
-               {/* Terminal Top Glow */}
-               <div className="absolute top-0 left-[15%] right-[15%] h-[1px] bg-gradient-to-r from-transparent via-purple-500/60 to-transparent"></div>
-               <div className="absolute inset-0 bg-gradient-to-b from-purple-900/5 to-transparent pointer-events-none"></div>
-
-               <div className="relative z-10">
-                 <div className="flex items-center justify-between border-b border-gray-800/50 pb-4 mb-2">
-                     <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14} className="text-purple-500/70"/> System Log</h3>
-                     <Link href="/history" className="text-[9px] text-purple-400 font-black tracking-widest hover:text-white transition-colors bg-purple-500/10 hover:bg-purple-500/20 px-3 py-1.5 rounded-lg uppercase">View All</Link>
-                 </div>
-                 
-                 <div className="flex flex-col">
-                   {recentActivity.length === 0 ? (
-                     <p className="text-[10px] text-gray-600 font-bold italic py-4 text-center">No recent movements.</p>
-                   ) : (
-                     recentActivity.map(act => (
-                       <div key={act.id} className="flex items-center justify-between py-2.5 border-b border-gray-800/30 last:border-0 group hover:bg-white/[0.02] px-2 -mx-2 rounded-lg transition-colors cursor-default">
-                         <div className="flex items-center gap-3 overflow-hidden">
-                           <div className={`shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-black/50 border ${act.movement_type.includes('IN') ? 'border-purple-500/30 text-purple-400' : act.movement_type.includes('TRANSFER') ? 'border-blue-500/30 text-blue-400' : 'border-yellow-500/30 text-yellow-500'}`}>
-                              {act.movement_type.includes('IN') ? <ArrowDownLeft size={10}/> : act.movement_type.includes('TRANSFER') ? <ArrowRightLeft size={10}/> : <ArrowUpRight size={10}/>}
-                           </div>
-                           <div className="truncate">
-                             <p className="text-[11px] font-bold text-gray-300 truncate group-hover:text-white transition-colors">{act.materials?.name || 'Unknown'}</p>
-                             <p className="text-[8px] font-black uppercase tracking-widest text-gray-600 truncate mt-0.5">
-                               {act.locations?.name || 'Unassigned'} 
-                               <span className="text-gray-700 ml-1.5 font-medium tracking-normal normal-case">• {new Date(act.created_at).toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}</span>
-                             </p>
-                           </div>
-                         </div>
-                         <span className={`shrink-0 text-xs font-black ml-3 ${act.quantity > 0 ? 'text-purple-400' : 'text-yellow-500'}`}>
-                           {act.quantity > 0 ? `+${act.quantity}` : act.quantity}
-                         </span>
+          {/* RIGHT: LEDGER FEED (Subtle List Style) */}
+          <div className="w-full xl:w-[320px] shrink-0 xl:border-l xl:border-gray-800/50 xl:pl-6 space-y-4">
+             <div className="flex items-center justify-between pb-1">
+                 <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2"><History size={12}/> Ledger Feed</h3>
+                 <Link href="/history" className="text-[9px] font-bold text-purple-500 hover:text-purple-400">View All</Link>
+             </div>
+             
+             <div className="flex flex-col gap-1.5">
+               {recentActivity.length === 0 ? (
+                 <p className="text-[10px] text-gray-600 font-bold italic py-4">No recent movements.</p>
+               ) : (
+                 recentActivity.map(act => (
+                   <div key={act.id} className="flex items-center justify-between py-2 border-b border-gray-800/30 last:border-0 group cursor-default">
+                     <div className="flex items-center gap-3 overflow-hidden">
+                       <div className={`shrink-0 flex items-center justify-center w-6 h-6 rounded-md bg-[#0f0f0f] border ${act.movement_type.includes('IN') ? 'border-purple-500/20 text-purple-400' : act.movement_type.includes('TRANSFER') ? 'border-blue-500/20 text-blue-400' : 'border-yellow-500/20 text-yellow-500'}`}>
+                          {act.movement_type.includes('IN') ? <ArrowDownLeft size={10}/> : act.movement_type.includes('TRANSFER') ? <ArrowRightLeft size={10}/> : <ArrowUpRight size={10}/>}
                        </div>
-                     ))
-                   )}
-                 </div>
-               </div>
-            </div>
+                       <div className="truncate">
+                         <p className="text-[11px] font-bold text-gray-300 truncate">{act.materials?.name || 'Unknown'}</p>
+                         <p className="text-[8px] font-black uppercase tracking-widest text-gray-600 truncate mt-0.5">
+                           {act.locations?.name || 'Unassigned'} 
+                           <span className="text-gray-700 ml-1.5 font-medium tracking-normal normal-case">• {new Date(act.created_at).toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}</span>
+                         </p>
+                       </div>
+                     </div>
+                     <span className={`shrink-0 text-xs font-black ml-3 ${act.quantity > 0 ? 'text-purple-400' : 'text-yellow-500'}`}>
+                       {act.quantity > 0 ? `+${act.quantity}` : act.quantity}
+                     </span>
+                   </div>
+                 ))
+               )}
+             </div>
           </div>
 
         </div>
@@ -299,7 +293,7 @@ function DashboardContent() {
   )
 }
 
-// Sleek Feed-Style Row Component for Inventory Items
+// Sleek Table-Row Component for Inventory Items
 function StockRow({ item, router }: { item: any, router: any }) {
   const threshold = item.is_mrp_enabled ? (item.reorder_point || 0) : 0
   const isOut = item.quantity <= 0
@@ -308,7 +302,7 @@ function StockRow({ item, router }: { item: any, router: any }) {
   return (
     <div 
       onClick={() => router.push(`/materials/${item.material_id}`)}
-      className="flex items-center justify-between py-3 px-3 border-b border-gray-800/40 last:border-0 hover:bg-[#1a1a1a] rounded-xl transition-colors cursor-pointer group"
+      className="flex items-center justify-between py-2.5 px-4 border-b border-gray-800/40 last:border-0 hover:bg-white/[0.02] transition-colors cursor-pointer group"
     >
       <div className="flex items-center gap-3 truncate pr-4">
         <h3 className={`text-xs font-bold truncate transition-colors ${
@@ -323,8 +317,8 @@ function StockRow({ item, router }: { item: any, router: any }) {
       <div className="flex items-center gap-4 shrink-0">
         {/* Dynamic Warning Icon */}
         <div className="flex items-center justify-center w-4 h-4 group-hover:hidden">
-          {isOut ? <AlertCircle size={14} className="text-red-500" /> : 
-           isLowStock ? <AlertCircle size={14} className="text-yellow-500" /> : null}
+          {isOut ? <AlertCircle size={12} className="text-red-500" /> : 
+           isLowStock ? <AlertCircle size={12} className="text-yellow-500" /> : null}
         </div>
         
         {/* Quick Transact Button (Appears on Hover) */}
@@ -337,17 +331,17 @@ function StockRow({ item, router }: { item: any, router: any }) {
           }`}
           title="Quick Transact"
         >
-           <ArrowRightLeft size={12} />
+           <ArrowRightLeft size={10} />
         </button>
 
         {/* Value Data */}
         <div className="text-right flex flex-col justify-center min-w-[2.5rem]">
-          <p className={`text-sm font-black leading-none ${
+          <p className={`text-[13px] font-black leading-none ${
             isOut ? 'text-red-500' : isLowStock ? 'text-yellow-500' : 'text-purple-400'
           }`}>
             {item.quantity}
           </p>
-          <p className="text-[8px] font-black uppercase tracking-widest text-gray-500 mt-1">
+          <p className="text-[7px] font-black uppercase tracking-widest text-gray-500 mt-1">
             {item.unit}
           </p>
         </div>
