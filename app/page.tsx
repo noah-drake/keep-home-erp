@@ -7,7 +7,7 @@ import Link from 'next/link'
 import StarterKits from './components/StarterKits'
 import { 
   MapPin, Package, AlertCircle, Shield, ArrowRightLeft, BookOpen, 
-  Plus, ClipboardCheck, ShoppingCart, History, ArrowDownLeft, ArrowUpRight 
+  Plus, ClipboardCheck, ShoppingCart, History, ArrowDownLeft, ArrowUpRight, TrendingUp
 } from 'lucide-react'
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
@@ -20,7 +20,7 @@ function DashboardContent() {
   const [unassignedItems, setUnassignedItems] = useState<any[]>([])
   const [totalItems, setTotalItems] = useState<number | null>(null)
   
-  // New Dashboard Telemetry State
+  // Dashboard Telemetry State
   const [lowStockCount, setLowStockCount] = useState(0)
   const [mrpItemCount, setMrpItemCount] = useState(0)
   const [recentActivity, setRecentActivity] = useState<any[]>([])
@@ -30,14 +30,13 @@ function DashboardContent() {
     if (!organization) return
     setLoading(true)
     
-    // Fetch all necessary dashboard data simultaneously
     const [locRes, matRes, countRes, stockRes, unitRes, activityRes] = await Promise.all([
       supabase.from('locations').select('*').eq('organization_id', organization.id).order('name'),
       supabase.from('materials').select('*').eq('organization_id', organization.id).eq('is_active', true),
       supabase.from('materials').select('*', { count: 'exact', head: true }).eq('organization_id', organization.id),
       supabase.from('view_stock_by_location').select('*').eq('organization_id', organization.id).gt('quantity', 0),
       supabase.from('units').select('*').or(`organization_id.eq.${organization.id},organization_id.is.null`),
-      supabase.from('inventory_movements').select('*, materials(name), locations(name)').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(5)
+      supabase.from('inventory_movements').select('*, materials(name), locations(name)').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(15)
     ])
 
     const locationsList = locRes.data || []
@@ -51,11 +50,10 @@ function DashboardContent() {
     let lowStockTracker = 0
     let mrpTracker = 0
 
-    // Map active materials to Display Cards
     materialsList.forEach(mat => {
-      const unit = unitsList.find(u => u.id === mat.unit_id) || unitsList.find(u => u.name === mat.unit_id)
+      const unit = unitsList.find(u => String(u.id) === String(mat.unit_id)) || unitsList.find(u => u.name === mat.unit_id)
       const unitStr = unit ? (unit.abbreviation || unit.name) : 'QTY'
-      const stocksForMat = stockList.filter(s => s.material_id === mat.id)
+      const stocksForMat = stockList.filter(s => String(s.material_id) === String(mat.id))
       const threshold = mat.is_mrp_enabled ? (mat.reorder_point || 0) : 0
       
       if (mat.is_mrp_enabled) mrpTracker++
@@ -86,7 +84,6 @@ function DashboardContent() {
     setLowStockCount(lowStockTracker)
     setMrpItemCount(mrpTracker)
 
-    // Group cards by Location
     const newGroupedData = locationsList.map(loc => ({
       ...loc,
       items: displayCards.filter(card => card.location_id === loc.id).sort((a, b) => a.name.localeCompare(b.name))
@@ -110,12 +107,11 @@ function DashboardContent() {
   )
 
   // ==========================================
-  // STATE 1: ONBOARDING (Empty Keep) - Remains Centered
+  // STATE 1: ONBOARDING (Empty Keep)
   // ==========================================
   if (totalItems === 0) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 flex flex-col justify-center items-center text-white font-sans pb-32">
-        {/* Onboarding UI stays exactly as it was... */}
         <div className="max-w-5xl w-full space-y-12">
           <div className="text-center space-y-4 animate-in fade-in slide-in-from-bottom-4">
             <h1 className="text-5xl font-black uppercase italic tracking-tighter text-gray-100">Establish Master Data</h1>
@@ -141,57 +137,129 @@ function DashboardContent() {
   }
 
   // ==========================================
-  // STATE 2: ACTIVE KEEP (New Bento Layout)
+  // STATE 2: ACTIVE COMMAND CENTER
   // ==========================================
   return (
-    <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans">
-      <div className="max-w-[1400px] mx-auto pb-20">
+    <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
+      <div className="max-w-[1600px] mx-auto">
         
-        {/* DASHBOARD HEADER */}
-        <header className="border-b border-gray-800 pb-6 mb-8">
-          <h1 className="text-4xl font-black uppercase tracking-tighter italic text-gray-100 mb-1">Command Center</h1>
-          <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">
-            <Shield size={12} className="text-purple-500" /> {organization.name} Operations
-          </p>
+        {/* ROW 1: ULTRA-DENSE HEADER */}
+        <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 border-b border-gray-800 pb-4 mb-6">
+          <div className="flex-shrink-0">
+            <h1 className="text-3xl font-black uppercase tracking-tighter italic text-gray-100 mb-1">Command Center</h1>
+            <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">
+              <Shield size={12} className="text-purple-500" /> {organization.name} Operations
+            </p>
+          </div>
+
+          <div className="flex flex-wrap xl:flex-nowrap items-center justify-start xl:justify-end gap-3 flex-1">
+            
+            {/* System Pulse - Tight integration */}
+            <div className="flex items-center gap-4 bg-[#0f0f0f] border border-gray-800 px-4 py-2 rounded-2xl shadow-sm">
+              <div className="flex items-center gap-2.5">
+                <Package size={14} className="text-purple-500" />
+                <div>
+                  <p className="text-[8px] font-black uppercase tracking-widest text-purple-400 leading-none">Active</p>
+                  <p className="text-lg font-black tracking-tighter leading-none mt-1">{totalItems}</p>
+                </div>
+              </div>
+              <div className="w-px h-6 bg-gray-800"></div>
+              <div className="flex items-center gap-2.5">
+                <TrendingUp size={14} className="text-yellow-500" />
+                <div>
+                  <p className="text-[8px] font-black uppercase tracking-widest text-yellow-500 leading-none">Restock</p>
+                  <p className="text-lg font-black tracking-tighter leading-none mt-1 flex items-baseline gap-1">
+                    {lowStockCount} <span className="text-xs text-gray-600 font-bold">/ {mrpItemCount} MRP</span>
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Actions - Compact */}
+            <div className="flex items-center gap-2">
+              <button onClick={() => router.push('/inventory')} className="bg-[#0f0f0f] border border-gray-800 hover:border-purple-500 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-sm group">
+                <ArrowRightLeft size={14} className="text-purple-500 group-hover:scale-110 transition-transform" />
+                <span className="text-[9px] font-black uppercase tracking-widest text-gray-300">Transact</span>
+              </button>
+              <button onClick={() => router.push('/inventory/count')} className="bg-[#0f0f0f] border border-gray-800 hover:border-blue-500 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-sm group">
+                <ClipboardCheck size={14} className="text-blue-500 group-hover:scale-110 transition-transform" />
+                <span className="text-[9px] font-black uppercase tracking-widest text-gray-300 hidden sm:block">Audit</span>
+              </button>
+              <button onClick={() => router.push('/materials/new')} className="bg-[#0f0f0f] border border-gray-800 hover:border-green-500 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-sm group">
+                <Plus size={14} className="text-green-500 group-hover:scale-110 transition-transform" />
+                <span className="text-[9px] font-black uppercase tracking-widest text-gray-300 hidden sm:block">Item</span>
+              </button>
+              <button onClick={() => router.push('/shopping-list')} className="bg-[#0f0f0f] border border-gray-800 hover:border-yellow-500 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-sm group relative overflow-hidden">
+                {lowStockCount > 0 && <span className="absolute top-0 right-0 w-full h-full bg-yellow-500/10 pointer-events-none animate-pulse"></span>}
+                <ShoppingCart size={14} className="text-yellow-500 group-hover:scale-110 transition-transform" />
+                <span className="text-[9px] font-black uppercase tracking-widest text-gray-300 hidden sm:block relative z-10">Shop</span>
+              </button>
+            </div>
+          </div>
         </header>
 
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+        {/* TWO COLUMN LAYOUT */}
+        <div className="flex flex-col xl:flex-row items-start gap-6 animate-in fade-in slide-in-from-bottom-4">
           
-          {/* LEFT COLUMN: VISUAL INVENTORY (Occupies 8/12 cols on massive screens) */}
-          <div className="xl:col-span-8 space-y-8 animate-in fade-in slide-in-from-bottom-4">
+          {/* LEFT: VISUAL INVENTORY - AUTO-PACKING MASONRY */}
+          <div className="flex-1 flex flex-row flex-wrap items-start gap-5 w-full">
             {groupedData.length === 0 && unassignedItems.length === 0 ? (
-              <div className="text-center py-20 bg-[#0f0f0f] border border-gray-800 rounded-[2.5rem]">
+              <div className="w-full text-center py-20 bg-[#0f0f0f] border border-gray-800 rounded-[2.5rem]">
                 <Package size={48} className="mx-auto text-gray-700 mb-4" />
                 <h2 className="text-xl font-black uppercase tracking-tight text-gray-400">All Master Items Inactive</h2>
                 <p className="text-xs font-bold text-gray-600 mt-2">Activate items in your registry to see them on the dashboard.</p>
               </div>
             ) : (
               <>
-                {groupedData.map((group) => (
-                  <section key={group.id} className="bg-[#0f0f0f] border border-gray-800 p-6 md:p-8 rounded-[2.5rem] shadow-xl space-y-6">
-                    <div className="flex items-center gap-3 border-b border-gray-800/50 pb-4">
-                      <div className="w-10 h-10 bg-black border border-gray-800 rounded-xl flex items-center justify-center shadow-inner"><MapPin size={20} className="text-purple-500" /></div>
-                      <div>
-                        <h2 className="text-2xl font-black uppercase tracking-tight text-gray-200 leading-none">{group.name}</h2>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">{group.items.length} Tracked Goods</span>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                      {group.items.map((item: any) => <StockTile key={item.id} item={item} router={router} />)}
-                    </div>
-                  </section>
-                ))}
+                {groupedData.map((group) => {
+                  const count = group.items.length
+                  // The wrapping magic: Small containers won't force line breaks if there's room.
+                  const sizeClass = count === 1 ? 'w-full sm:w-[260px]' : 
+                                    count === 2 ? 'w-full sm:w-[540px]' : 
+                                    'w-full'
+                  
+                  const gridClass = count === 1 ? 'grid-cols-1' : 
+                                    count === 2 ? 'grid-cols-1 sm:grid-cols-2' : 
+                                    'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3'
 
-                {unassignedItems.length > 0 && (
-                  <section className="bg-yellow-950/10 border border-yellow-900/30 p-6 md:p-8 rounded-[2.5rem] shadow-xl space-y-6">
-                    <div className="flex items-center gap-3 border-b border-yellow-900/30 pb-4">
-                      <div className="w-10 h-10 bg-black border border-yellow-900/50 rounded-xl flex items-center justify-center shadow-inner"><Package size={20} className="text-yellow-500" /></div>
-                      <div>
-                        <h2 className="text-2xl font-black uppercase tracking-tight text-yellow-500 leading-none">Unassigned Goods</h2>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-yellow-700">Needs Chamber Assignment</span>
+                  return (
+                    <section key={group.id} className={`bg-[#0f0f0f] border border-gray-800 p-5 rounded-[2.5rem] shadow-lg shrink-0 flex-grow-0 ${sizeClass}`}>
+                      <div className="flex items-center justify-between border-b border-gray-800/50 pb-3 mb-4">
+                        <Link href={`/locations/${group.id}`} className="flex items-center gap-2.5 group/loc">
+                          <div className="w-7 h-7 bg-black border border-gray-800 rounded-lg flex items-center justify-center shadow-inner group-hover/loc:border-purple-500/50 transition-colors">
+                            <MapPin size={14} className="text-purple-500 group-hover/loc:scale-110 transition-transform" />
+                          </div>
+                          <h2 className="text-base font-black uppercase tracking-tight text-gray-200 leading-none truncate max-w-[180px] group-hover/loc:text-purple-400 transition-colors">{group.name}</h2>
+                        </Link>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-gray-600 bg-gray-900 px-2 py-1 rounded-md">{count}</span>
                       </div>
+
+                      <div className={`grid gap-3 ${gridClass}`}>
+                        {group.items.map((item: any) => <StockTile key={item.id} item={item} router={router} />)}
+                      </div>
+                    </section>
+                  )
+                })}
+
+                {/* UNASSIGNED ITEMS */}
+                {unassignedItems.length > 0 && (
+                  <section className={`bg-yellow-950/10 border border-yellow-900/30 p-5 rounded-[2.5rem] shadow-lg shrink-0 flex-grow-0 ${
+                    unassignedItems.length === 1 ? 'w-full sm:w-[260px]' : 
+                    unassignedItems.length === 2 ? 'w-full sm:w-[540px]' : 
+                    'w-full'
+                  }`}>
+                    <div className="flex items-center justify-between border-b border-yellow-900/30 pb-3 mb-4">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 bg-black border border-yellow-900/50 rounded-lg flex items-center justify-center shadow-inner"><Package size={14} className="text-yellow-500" /></div>
+                        <h2 className="text-base font-black uppercase tracking-tight text-yellow-500 leading-none truncate max-w-[180px]">Unassigned</h2>
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-yellow-700 bg-yellow-950/50 px-2 py-1 rounded-md">{unassignedItems.length}</span>
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                    <div className={`grid gap-3 ${
+                      unassignedItems.length === 1 ? 'grid-cols-1' : 
+                      unassignedItems.length === 2 ? 'grid-cols-1 sm:grid-cols-2' : 
+                      'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3'
+                    }`}>
                       {unassignedItems.map((item: any) => <StockTile key={item.id} item={item} router={router} />)}
                     </div>
                   </section>
@@ -200,77 +268,44 @@ function DashboardContent() {
             )}
           </div>
 
-          {/* RIGHT COLUMN: INTELLIGENCE & QUICK ACTIONS (Occupies 4/12 cols) */}
-          <div className="xl:col-span-4 space-y-6">
-            
-            {/* Quick Actions Grid */}
-            <div className="grid grid-cols-2 gap-4">
-              <button onClick={() => router.push('/inventory')} className="bg-[#0f0f0f] border border-gray-800 hover:border-purple-500 p-5 rounded-3xl flex flex-col items-center justify-center gap-3 transition-all group shadow-lg">
-                <div className="w-12 h-12 bg-purple-900/20 text-purple-400 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform"><ArrowRightLeft size={20} /></div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-300">Transact</span>
-              </button>
-              <button onClick={() => router.push('/inventory/count')} className="bg-[#0f0f0f] border border-gray-800 hover:border-blue-500 p-5 rounded-3xl flex flex-col items-center justify-center gap-3 transition-all group shadow-lg">
-                <div className="w-12 h-12 bg-blue-900/20 text-blue-400 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform"><ClipboardCheck size={20} /></div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-300">Audit Stock</span>
-              </button>
-              <button onClick={() => router.push('/materials/new')} className="bg-[#0f0f0f] border border-gray-800 hover:border-green-500 p-5 rounded-3xl flex flex-col items-center justify-center gap-3 transition-all group shadow-lg">
-                <div className="w-12 h-12 bg-green-900/20 text-green-400 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform"><Plus size={20} /></div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-300">Add Item</span>
-              </button>
-              <button onClick={() => router.push('/shopping-list')} className="bg-[#0f0f0f] border border-gray-800 hover:border-yellow-500 p-5 rounded-3xl flex flex-col items-center justify-center gap-3 transition-all group shadow-lg relative">
-                {lowStockCount > 0 && <span className="absolute top-4 right-4 w-3 h-3 bg-yellow-500 rounded-full animate-pulse"></span>}
-                <div className="w-12 h-12 bg-yellow-900/20 text-yellow-500 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform"><ShoppingCart size={20} /></div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-300">Shop List</span>
-              </button>
-            </div>
+          {/* RIGHT: RECESSED TELEMETRY FEED */}
+          <div className="w-full xl:w-[360px] shrink-0">
+            <div className="relative bg-black/60 backdrop-blur-2xl border border-gray-800/60 rounded-[2.5rem] p-6 shadow-[inset_0_0_40px_rgba(0,0,0,0.6)] sticky top-24 overflow-hidden">
+               
+               {/* Terminal Top Glow */}
+               <div className="absolute top-0 left-[15%] right-[15%] h-[1px] bg-gradient-to-r from-transparent via-purple-500/60 to-transparent"></div>
+               <div className="absolute inset-0 bg-gradient-to-b from-purple-900/5 to-transparent pointer-events-none"></div>
 
-            {/* System Pulse Widget */}
-            <div className="bg-gradient-to-br from-[#1a0b2e] to-[#0f0f0f] border border-purple-500/20 p-6 rounded-[2.5rem] shadow-2xl flex items-center justify-between">
-               <div>
-                 <p className="text-[10px] font-black uppercase tracking-widest text-purple-400 mb-1">Active Roster</p>
-                 <p className="text-4xl font-black tracking-tighter">{totalItems}</p>
-               </div>
-               <div className="h-12 w-px bg-purple-500/20"></div>
-               <div className="text-right flex flex-col items-end">
-                 <p className="text-[10px] font-black uppercase tracking-widest text-yellow-500 mb-1">Needs Restock</p>
-                 <p className={`flex items-baseline gap-1 text-4xl font-black tracking-tighter ${lowStockCount > 0 ? 'text-yellow-500' : 'text-gray-500'}`}>
-                   {lowStockCount}
-                   <span className="text-lg font-bold text-gray-600 tracking-normal">/ {mrpItemCount}</span>
-                 </p>
+               <div className="relative z-10">
+                 <div className="flex items-center justify-between border-b border-gray-800/50 pb-4 mb-5">
+                     <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14} className="text-purple-500/70"/> Ledger Feed</h3>
+                     <Link href="/history" className="text-[9px] text-purple-400 font-black tracking-widest hover:text-white transition-colors bg-purple-500/10 hover:bg-purple-500/20 px-3 py-1.5 rounded-lg uppercase">View All</Link>
+                 </div>
+                 
+                 <div className="flex flex-col gap-3">
+                   {recentActivity.length === 0 ? (
+                     <p className="text-[10px] text-gray-600 font-bold italic py-4 text-center">No recent movements.</p>
+                   ) : (
+                     recentActivity.map(act => (
+                       <div key={act.id} className="flex items-center gap-3 bg-[#0f0f0f]/80 border border-gray-800/60 p-3 rounded-2xl group hover:bg-[#1a1a1a] transition-colors">
+                         <div className={`shrink-0 w-8 h-8 rounded-xl flex items-center justify-center border ${act.movement_type.includes('IN') ? 'bg-purple-900/20 border-purple-500/30 text-purple-400' : act.movement_type.includes('TRANSFER') ? 'bg-blue-900/20 border-blue-500/30 text-blue-400' : 'bg-yellow-900/20 border-yellow-500/30 text-yellow-500'}`}>
+                            {act.movement_type.includes('IN') ? <ArrowDownLeft size={12}/> : act.movement_type.includes('TRANSFER') ? <ArrowRightLeft size={12}/> : <ArrowUpRight size={12}/>}
+                         </div>
+                         <div className="truncate flex-1">
+                           <p className="text-[10px] font-bold text-gray-300 truncate group-hover:text-white transition-colors">{act.materials?.name || 'Unknown'}</p>
+                           <p className="text-[8px] font-black uppercase tracking-widest text-gray-600 truncate mt-0.5">{act.locations?.name || 'Unassigned'}</p>
+                         </div>
+                         <span className={`shrink-0 text-xs font-black ${act.quantity > 0 ? 'text-purple-400' : 'text-yellow-500'}`}>
+                           {act.quantity > 0 ? `+${act.quantity}` : act.quantity}
+                         </span>
+                       </div>
+                     ))
+                   )}
+                 </div>
                </div>
             </div>
-
-            {/* Live Telemetry / Recent Ledger */}
-            <div className="bg-[#0f0f0f] border border-gray-800 rounded-[2.5rem] p-6 shadow-xl">
-              <div className="flex items-center justify-between border-b border-gray-800/50 pb-4 mb-4">
-                 <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><History size={14} /> Live Telemetry</h3>
-                 <Link href="/history" className="text-[9px] font-black uppercase tracking-widest text-purple-500 hover:text-purple-400">View All</Link>
-              </div>
-              <div className="space-y-4">
-                {recentActivity.length === 0 ? (
-                  <p className="text-xs text-gray-600 font-bold italic text-center py-4">No recent movements.</p>
-                ) : (
-                  recentActivity.map(act => (
-                    <div key={act.id} className="flex justify-between items-center group">
-                      <div className="flex items-center gap-3 overflow-hidden">
-                        <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center border ${act.movement_type.includes('IN') ? 'bg-purple-900/20 border-purple-500/30 text-purple-400' : act.movement_type.includes('TRANSFER') ? 'bg-blue-900/20 border-blue-500/30 text-blue-400' : 'bg-yellow-900/20 border-yellow-500/30 text-yellow-500'}`}>
-                           {act.movement_type.includes('IN') ? <ArrowDownLeft size={12}/> : act.movement_type.includes('TRANSFER') ? <ArrowRightLeft size={12}/> : <ArrowUpRight size={12}/>}
-                        </div>
-                        <div className="truncate">
-                          <p className="text-xs font-bold text-gray-300 truncate">{act.materials?.name || 'Unknown'}</p>
-                          <p className="text-[9px] font-black uppercase tracking-widest text-gray-600 truncate">{act.locations?.name || 'Unassigned'}</p>
-                        </div>
-                      </div>
-                      <span className={`shrink-0 ml-2 text-sm font-black ${act.quantity > 0 ? 'text-purple-400' : 'text-yellow-500'}`}>
-                        {act.quantity > 0 ? `+${act.quantity}` : act.quantity}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
           </div>
+
         </div>
       </div>
     </div>
@@ -286,14 +321,14 @@ function StockTile({ item, router }: { item: any, router: any }) {
   return (
     <div 
       onClick={() => router.push(`/materials/${item.material_id}`)}
-      className={`cursor-pointer border p-4 sm:p-5 rounded-3xl transition-all group relative overflow-hidden flex flex-col justify-between min-h-[110px] shadow-lg ${
+      className={`cursor-pointer border p-3.5 rounded-2xl transition-all group relative overflow-hidden flex flex-col justify-between min-h-[90px] shadow-sm hover:shadow-md ${
         isOut ? 'bg-red-950/10 border-red-900/40 hover:border-red-500/60' :
         isLowStock ? 'bg-yellow-950/10 border-yellow-900/40 hover:border-yellow-500/60' : 
         'bg-black border-gray-800 hover:border-purple-500/50'
       }`}
     >
       <div className="flex justify-between items-start gap-2">
-        <h3 className={`text-xs font-bold leading-tight transition-colors line-clamp-2 ${
+        <h3 className={`text-[11px] font-bold leading-tight transition-colors line-clamp-2 ${
           isOut ? 'text-red-200 group-hover:text-red-100' : 
           isLowStock ? 'text-yellow-200 group-hover:text-yellow-100' : 
           'text-gray-300 group-hover:text-white'
@@ -304,31 +339,31 @@ function StockTile({ item, router }: { item: any, router: any }) {
         {/* Quick Transact Button (Replaces the Alert Icon on Hover) */}
         <div className="flex items-center gap-2 shrink-0">
           <div className="group-hover:hidden">
-            {isOut ? <AlertCircle size={16} className="text-red-500" /> : 
-             isLowStock ? <AlertCircle size={16} className="text-yellow-500" /> : null}
+            {isOut ? <AlertCircle size={14} className="text-red-500" /> : 
+             isLowStock ? <AlertCircle size={14} className="text-yellow-500" /> : null}
           </div>
           
           <button 
             onClick={(e) => { e.stopPropagation(); router.push(`/inventory?material_id=${item.material_id}`) }}
-            className={`hidden group-hover:flex p-1.5 rounded-lg transition-colors ${
+            className={`hidden group-hover:flex p-1 rounded-md transition-colors ${
               isOut ? 'bg-red-900/50 text-red-100 hover:bg-red-500' : 
               isLowStock ? 'bg-yellow-900/50 text-yellow-100 hover:bg-yellow-500' : 
               'bg-gray-900 text-purple-400 hover:bg-purple-500/20'
             }`}
             title="Quick Transact"
           >
-             <ArrowRightLeft size={14} />
+             <ArrowRightLeft size={12} />
           </button>
         </div>
       </div>
       
-      <div className="mt-3 flex items-end justify-between">
-        <p className={`text-[8px] sm:text-[9px] font-black uppercase tracking-widest truncate max-w-[50px] ${
+      <div className="mt-2 flex items-end justify-between">
+        <p className={`text-[8px] font-black uppercase tracking-widest truncate max-w-[50px] ${
           isOut ? 'text-red-500/70' : isLowStock ? 'text-yellow-600' : 'text-gray-600'
         }`}>
           {item.unit}
         </p>
-        <p className={`text-2xl sm:text-3xl font-black tracking-tighter leading-none ${
+        <p className={`text-2xl font-black tracking-tighter leading-none ${
           isOut ? 'text-red-500' : isLowStock ? 'text-yellow-500' : 'text-purple-400'
         }`}>
           {item.quantity}
