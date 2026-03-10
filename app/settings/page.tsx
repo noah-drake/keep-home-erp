@@ -128,7 +128,7 @@ function SettingsContent() {
     const { data, error } = await supabase.from('invites').insert([{ organization_id: organization.id, role: inviteRole }]).select().single()
     if (error) setError(error.message)
     else { 
-      setInviteLink(`https://keep.nexus/login?invite_id=${data?.id || 'mock-invite-123'}`)
+      setInviteLink(`${window.location.origin}/login?invite_id=${data.id}`)
       setMessage("Secure transmission link generated!") 
     }
     setLoading(false)
