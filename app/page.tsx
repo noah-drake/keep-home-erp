@@ -152,7 +152,7 @@ function DashboardContent() {
         {/* ROW 1: TIGHTLY PACKED HEADER */}
         <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-5 border-b border-gray-800 pb-5 mb-6">
           <div className="flex-shrink-0">
-            <h1 className="text-3xl font-black uppercase tracking-tighter italic text-gray-100 leading-none">Keep Nexus</h1>
+            <h1 className="text-3xl font-black uppercase tracking-tighter italic text-gray-100 leading-none">My Keep</h1>
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2 mt-1.5">
               <Shield size={12} className="text-purple-500" /> {organization.name} Operations
             </p>
@@ -274,29 +274,36 @@ function DashboardContent() {
                    </div>
                 </button>
 
-                {/* 4. GHOST LOCATIONS (Exist, but empty) */}
-                {ghostLocs.map((group) => {
-                  return (
-                    <section key={group.id} className="break-inside-avoid inline-block w-full mb-5 border border-gray-800/80 rounded-[1.5rem] bg-[#121212] overflow-hidden shadow-sm hover:border-gray-600 transition-colors opacity-80 hover:opacity-100">
-                      <div className="bg-[#1a1a1a] flex items-center justify-between px-4 py-3.5 border-b border-gray-800/80">
-                        <Link href={`/locations/${group.id}`} className="flex items-center gap-2.5 group/loc">
-                          <MapPin size={14} className="text-gray-500 group-hover/loc:scale-110 transition-transform" />
-                          <h2 className="text-[11px] font-black uppercase tracking-widest text-gray-400 group-hover/loc:text-gray-200 transition-colors">{group.name}</h2>
-                        </Link>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[7px] font-black uppercase tracking-widest text-gray-600 bg-black/60 px-2 py-1.5 rounded-md border border-gray-800">{group.defaultCount} Default</span>
-                          <span className="text-[8px] font-black uppercase tracking-widest text-gray-600 bg-gray-900 px-2 py-1 rounded-md border border-gray-800/50">Empty</span>
-                        </div>
+                {/* 4. GHOST LOCATIONS (Consolidated) */}
+                {ghostLocs.length > 0 && (
+                  <section className="break-inside-avoid inline-block w-full mb-5 border border-gray-800/80 rounded-[1.5rem] bg-[#121212] overflow-hidden shadow-sm opacity-90 hover:opacity-100 transition-opacity">
+                    <div className="bg-[#1a1a1a] flex items-center justify-between px-4 py-3.5 border-b border-gray-800/80">
+                      <div className="flex items-center gap-2.5">
+                        <MapPin size={14} className="text-gray-600" />
+                        <h2 className="text-[11px] font-black uppercase tracking-widest text-gray-400">Empty Chambers</h2>
                       </div>
+                      <span className="text-[8px] font-black uppercase tracking-widest text-gray-500 bg-black/60 px-2 py-1 rounded-md border border-gray-800">{ghostLocs.length} Total</span>
+                    </div>
 
-                      <div className="flex flex-col">
-                        <Link href={`/materials/new?location_id=${group.id}`} className="flex items-center justify-center gap-2 py-4 px-4 text-[9px] font-black uppercase tracking-widest text-gray-600 hover:text-purple-400 hover:bg-white/[0.04] transition-colors">
-                          <Plus size={12} /> Add First Item
-                        </Link>
-                      </div>
-                    </section>
-                  )
-                })}
+                    <div className="flex flex-col">
+                      {ghostLocs.map((loc) => (
+                        <div key={loc.id} className="flex items-center justify-between py-3 px-4 border-b border-gray-800/40 last:border-0 hover:bg-white/[0.02] transition-colors group">
+                          <div className="flex items-center gap-3">
+                            <Link href={`/locations/${loc.id}`} className="text-[11px] font-bold text-gray-400 group-hover:text-purple-400 transition-colors">
+                              {loc.name}
+                            </Link>
+                            <span className="text-[7px] font-black uppercase tracking-widest text-gray-600 bg-black/40 px-1.5 py-0.5 rounded border border-gray-800/50">
+                              {loc.defaultCount} Default
+                            </span>
+                          </div>
+                          <Link href={`/materials/new?location_id=${loc.id}`} className="text-[9px] font-black uppercase tracking-widest text-gray-600 hover:text-purple-400 flex items-center gap-1.5 transition-colors">
+                            <Plus size={10} /> Add Item
+                          </Link>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
 
               </div>
             )}
@@ -352,7 +359,7 @@ function StockRow({ item, router }: { item: any, router: any }) {
   return (
     <div 
       onClick={() => router.push(`/materials/${item.material_id}`)}
-      className="flex items-center justify-between py-2.5 px-4 border-b border-gray-800/40 last:border-0 hover:bg-white/[0.04] transition-colors cursor-pointer group"
+      className="flex items-center justify-between py-2.5 px-4 border-b border-gray-800/40 last:border-0 hover:bg-[#1f1f1f] transition-colors cursor-pointer group"
     >
       <div className="flex items-center gap-3 truncate pr-4">
         <h3 className={`text-xs font-bold truncate transition-colors ${

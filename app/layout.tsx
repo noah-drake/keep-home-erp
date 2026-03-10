@@ -7,7 +7,7 @@ import Navbar from './components/navbar' // Import your new Navbar
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Home ERP',
+  title: 'Keep Home ERP',
   description: 'Manage your home inventory',
 }
 
