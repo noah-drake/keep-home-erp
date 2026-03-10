@@ -1,36 +1,91 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Keep Home ERP 📦
 
-## Getting Started
+Keep is a high-density, operational Home ERP (Enterprise Resource Planning) platform. It is designed to map the unstructured reality of physical household inventory into a structured, predictive digital twin.
 
-First, run the development server:
+Instead of reactive purchasing and stockouts, Keep provides an opinionated workflow to track Master Data, physical storage Chambers, and an immutable ledger of consumption events.
 
-```bash
+🧠 The Philosophy (Why this exists)
+
+Whether you are managing a global supply chain or a household pantry, the core problem is the same: disconnected data leads to operational failure. Most home inventory apps are glorified grocery lists. Keep is built like an enterprise operational terminal:
+
+High-Density UI: CSS Masonry layouts visually map to the physical size of your storage chambers, eliminating dead space and reducing cognitive load.
+
+Time to Value: Rapid ingestion pathways (Starter Kits, Global Registry) prevent the "cold start" problem of manual data entry.
+
+Immutable Ledger: Inventory isn't just a number; it's a sum of historical transactions (Inbound, Outbound, Transfers), laying the groundwork for predictive burn-rate analytics.
+
+🏗️ Core Architecture
+
+Keep's data architecture is built on three foundational nodes:
+
+Master Data 
+(Goods): The global definition of an object (e.g., "Chemex Filters - 100ct"), tracking specific reorder points and default storage locations.
+
+(Stores): Physical boundaries in your environment (e.g., "Primary Fridge", "Garage Racks").
+
+Ledger (Movements): A strict append-only record of every physical state change.
+
+💻 Tech Stack
+
+Framework: Next.js (App Router)
+
+Language: TypeScript / React
+
+Styling: Tailwind CSS + Lucide Icons
+
+Database & Auth: Supabase (PostgreSQL)
+
+Security: Strict Row-Level Security (RLS) & Role-Based Access Control (RBAC) via Supabase RPCs.
+
+🚀 Local Deployment / Getting Started
+
+To run Keep locally, you will need Node.js and a free Supabase account.
+
+1. Clone the Repository
+
+git clone [https://github.com/noah-drake/keep-home-erp.git](https://github.com/noah-drake/keep-home-erp.git)
+cd keep-home-erp
+npm install
+
+
+2. Configure Supabase
+
+Create a new Supabase project.
+
+Run the SQL schema found in /supabase/schema.sql (Note: you will want to export your schema and save it to this folder later) to generate the tables, views, and RPC functions.
+
+Get your API keys from Project Settings -> API.
+
+3. Set Environment Variables
+
+Create a file named .env.local in the root directory and add your Supabase keys:
+
+NEXT_PUBLIC_SUPABASE_URL=[https://your-project-url.supabase.co](https://your-project-url.supabase.co)
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+
+
+(Do not commit this file. It is ignored by .gitignore)
+
+4. Run the Development Server
+
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Open http://localhost:3000 with your browser. Create an account to initialize your first Plant.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+🛡️ Security & RBAC
 
-## Learn More
+Keep implements strict multi-tenant data isolation.
 
-To learn more about Next.js, take a look at the following resources:
+Plants (Organizations): All data is gated by a plant_id.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Admins: Can rename plants, generate magic invite links, and execute destructive actions.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Viewers: Have read/write access to execute inventory transactions but cannot alter the Plant structure.
 
-## Deploy on Vercel
+Database RLS: Security is enforced at the Postgres level; a compromised client cannot query another Plant's data.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+📜 License
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project is licensed under the MIT License - see the LICENSE file for details.
+(Data entered into the system remains private to the host DBA).
