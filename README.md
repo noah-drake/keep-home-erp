@@ -1,21 +1,4 @@
 Keep Home ERP 📦
-
-Keep is a high-density, operational Home ERP (Enterprise Resource Planning) platform. It is designed to map the unstructured reality of physical household inventory into a structured, predictive digital twin.
-
-Instead of reactive purchasing and stockouts, Keep provides an opinionated workflow to track Master Data, physical storage Chambers, and an immutable ledger of consumption events.
-
-🧠 The Philosophy (Why this exists)
-
-Whether you are managing a global supply chain or a household pantry, the core problem is the same: disconnected data leads to operational failure. Most home inventory apps are glorified grocery lists. Keep is built like an enterprise operational terminal:
-
-High-Density UI: CSS Masonry layouts visually map to the physical size of your storage chambers, eliminating dead space and reducing cognitive load.
-
-Time to Value: Rapid ingestion pathways (Starter Kits, Global Registry) prevent the "cold start" problem of manual data entry.
-
-Immutable Ledger: Inventory isn't just a number; it's a sum of historical transactions (Inbound, Outbound, Transfers), laying the groundwork for predictive burn-rate analytics.
-
-🏗️ Core Architecture
-
 Keep's data architecture is built on three foundational nodes:
 
 Master Data 
@@ -25,7 +8,7 @@ Master Data
 
 Ledger (Movements): A strict append-only record of every physical state change.
 
-💻 Tech Stack
+Tech Stack
 
 Framework: Next.js (App Router)
 
@@ -37,7 +20,7 @@ Database & Auth: Supabase (PostgreSQL)
 
 Security: Strict Row-Level Security (RLS) & Role-Based Access Control (RBAC) via Supabase RPCs.
 
-🚀 Local Deployment / Getting Started
+Local Deployment / Getting Started
 
 To run Keep locally, you will need Node.js and a free Supabase account.
 
