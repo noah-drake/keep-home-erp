@@ -6,16 +6,10 @@ import {
   Building2, Shield
 } from 'lucide-react'
 
-// ============================================================================
-// NOTE FOR LOCAL DEPLOYMENT: 
-// Uncomment the 4 lines below and delete the "MOCK BLOCK" to connect to your DB
-// ============================================================================
 import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
 import { useOrganization } from '../context/OrganizationContext'
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-
-
 
 function SettingsContent() {
   const router = useRouter()
@@ -134,7 +128,6 @@ function SettingsContent() {
     const { data, error } = await supabase.from('invites').insert([{ organization_id: organization.id, role: inviteRole }]).select().single()
     if (error) setError(error.message)
     else { 
-      // For local dev/preview mock we just generate a dummy link
       setInviteLink(`https://keep.nexus/login?invite_id=${data?.id || 'mock-invite-123'}`)
       setMessage("Secure transmission link generated!") 
     }
@@ -178,7 +171,7 @@ function SettingsContent() {
                 <div className="w-20 h-20 bg-purple-900/20 border border-purple-500/30 rounded-3xl mx-auto mb-6 flex items-center justify-center">
                     <ShieldCheck size={40} className="text-purple-500" />
                 </div>
-                <h1 className="text-4xl font-black uppercase tracking-tighter text-center mb-2">Welcome to Keep Nexus</h1>
+                <h1 className="text-4xl font-black uppercase tracking-tighter text-center mb-2">Welcome to Keep Home ERP</h1>
                 <p className="text-xs font-bold text-gray-500 uppercase tracking-widest text-center mb-10 leading-relaxed">
                     You have successfully secured your credentials. <br/>To begin managing inventory, you must establish a Plant.
                 </p>
@@ -298,7 +291,7 @@ function SettingsContent() {
             </div>
             
             <div className="space-y-2">
-              {allOrganizations.map((org: any)=> (
+              {allOrganizations.map(org => (
                 <button 
                   key={org.id} 
                   onClick={() => { setOrganization(org); router.push('/') }}
@@ -345,7 +338,7 @@ function SettingsContent() {
                 {inviteLink && (
                   <div className="mt-4 p-4 bg-blue-950/20 border border-blue-900/50 rounded-xl animate-in fade-in zoom-in">
                     <input readOnly value={inviteLink} className="w-full bg-transparent text-blue-400 font-mono text-[10px] outline-none cursor-pointer mb-4" onClick={(e) => { (e.target as HTMLInputElement).select(); navigator.clipboard.writeText(inviteLink); setMessage("Link copied to clipboard!"); }} />
-                    <a href={`https://mail.google.com/mail/?view=cm&fs=1&su=Invitation to join ${organization?.name}&body=You have been cleared for access to ${organization?.name} on Keep Nexus.%0A%0AUse this secure link to log in or register:%0A${inviteLink}`} target="_blank" rel="noopener noreferrer" className="w-full bg-blue-600/20 border border-blue-500/50 text-blue-400 py-3 rounded-lg font-black uppercase text-[10px] tracking-widest hover:bg-blue-500 hover:text-white transition-all flex items-center justify-center gap-2">
+                    <a href={`https://mail.google.com/mail/?view=cm&fs=1&su=Invitation to join ${organization?.name}&body=You have been cleared for access to ${organization?.name} on Keep Home ERP.%0A%0AUse this secure link to log in or register:%0A${inviteLink}`} target="_blank" rel="noopener noreferrer" className="w-full bg-blue-600/20 border border-blue-500/50 text-blue-400 py-3 rounded-lg font-black uppercase text-[10px] tracking-widest hover:bg-blue-500 hover:text-white transition-all flex items-center justify-center gap-2">
                         <Mail size={14} /> Send via Gmail
                     </a>
                   </div>
