@@ -298,7 +298,7 @@ function SettingsContent() {
             </div>
             
             <div className="space-y-2">
-              {allOrganizations.map(org => (
+              {allOrganizations.map((org: any)=> (
                 <button 
                   key={org.id} 
                   onClick={() => { setOrganization(org); router.push('/') }}
