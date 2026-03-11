@@ -1,11 +1,9 @@
 'use client'
-import { createClient } from '@supabase/supabase-js'
 import { useEffect, useState, Suspense } from 'react'
 import { useOrganization } from '../context/OrganizationContext'
 import { useRouter } from 'next/navigation'
 import { ShoppingCart, AlertTriangle, Package, ArrowDownLeft, Settings2, MapPin } from 'lucide-react'
-
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+import { supabase } from '@/utils/supabase'
 
 function ReplenishmentContent() {
   const router = useRouter()

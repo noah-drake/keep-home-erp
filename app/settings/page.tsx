@@ -6,11 +6,9 @@ import {
   Building2, Shield
 } from 'lucide-react'
 
-import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
 import { useOrganization } from '../context/OrganizationContext'
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-
+import { supabase } from '@/utils/supabase'
 function SettingsContent() {
   const router = useRouter()
   const { organization, allOrganizations, setOrganization, isLoading } = useOrganization()

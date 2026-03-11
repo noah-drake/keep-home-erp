@@ -1,10 +1,8 @@
 'use client'
-import { createClient } from '@supabase/supabase-js'
 import { useEffect, useState, Suspense } from 'react'
 import { useOrganization } from '../context/OrganizationContext'
 import { Filter, Plus, Edit2, Trash2, X, Save, Globe } from 'lucide-react'
-
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+import { supabase } from '@/utils/supabase'
 
 function CategoriesContent() {
   const { organization } = useOrganization()

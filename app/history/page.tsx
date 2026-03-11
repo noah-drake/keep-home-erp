@@ -1,13 +1,8 @@
 'use client'
-import { createClient } from '@supabase/supabase-js'
 import { useEffect, useState } from 'react'
 import { useOrganization } from '../context/OrganizationContext'
 import { Shield, ArrowDownLeft, ArrowUpRight, ArrowRightLeft, MessageSquare, Search, Filter, Database, Loader2 } from 'lucide-react'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+import { supabase } from '@/utils/supabase'
 
 export default function HistoryPage() {
   const { organization } = useOrganization()

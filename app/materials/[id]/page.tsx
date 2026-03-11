@@ -1,11 +1,9 @@
 'use client'
 import { useEffect, useState, Suspense } from 'react'
-import { createClient } from '@supabase/supabase-js'
 import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../../context/OrganizationContext'
 import { ArrowLeft, Save, Trash2, Package, MapPin, Target, AlertTriangle, ArrowRightLeft, Edit2, X, ToggleLeft, ToggleRight, History, ArrowDownLeft, ArrowUpRight, Settings2, Check } from 'lucide-react'
-
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+import { supabase } from '@/utils/supabase'
 
 function ItemMasterContent() {
   const router = useRouter()

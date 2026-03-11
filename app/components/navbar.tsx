@@ -4,9 +4,7 @@ import { useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { Settings, ChevronDown, Database, LogOut, Package, MapPin, Grid, Scale, Shield } from 'lucide-react'
 import { useOrganization } from '../context/OrganizationContext'
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+import { supabase } from '@/utils/supabase'
 
 // Custom SVG Logo for 'Keep' - Borderless Castle Mark
 const KeepLogo = () => (

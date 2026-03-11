@@ -1,9 +1,7 @@
 'use client'
 import React, { createContext, useContext, useState, useEffect } from 'react'
-import { createClient } from '@supabase/supabase-js'
 import { useRouter, usePathname } from 'next/navigation'
-
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+import { supabase } from '@/utils/supabase'
 
 const OrganizationContext = createContext<any>(null)
 
