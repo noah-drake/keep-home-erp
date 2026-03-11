@@ -9,20 +9,48 @@ import {
   Plus, ClipboardCheck, ShoppingCart, History, ArrowDownLeft, ArrowUpRight, TrendingUp
 } from 'lucide-react'
 import { supabase } from '@/utils/supabase'
+import type { Tables } from '@/types/database.types'
+
+type LocationRow = Tables<'locations'>
+type MaterialRow = Tables<'materials'>
+type UnitRow = Tables<'units'>
+type StockByLocationRow = Tables<'view_stock_by_location'>
+type InventoryMovementRow = Tables<'inventory_movements'>
+
+type RecentActivityRow = InventoryMovementRow & {
+  materials: { name: string } | null
+  locations: { name: string } | null
+}
+
+type StockCard = {
+  id: string
+  material_id: MaterialRow['id']
+  name: MaterialRow['name']
+  unit: string
+  reorder_point: MaterialRow['reorder_point']
+  is_mrp_enabled: MaterialRow['is_mrp_enabled']
+  location_id: StockByLocationRow['location_id'] | MaterialRow['default_location_id'] | null
+  quantity: number
+}
+
+type LocationGroup = LocationRow & {
+  items: StockCard[]
+  defaultCount: number
+}
 
 function DashboardContent() {
   const router = useRouter()
   const { organization } = useOrganization()
   
-  const [activeLocs, setActiveLocs] = useState<any[]>([])
-  const [ghostLocs, setGhostLocs] = useState<any[]>([])
-  const [unassignedItems, setUnassignedItems] = useState<any[]>([])
+  const [activeLocs, setActiveLocs] = useState<LocationGroup[]>([])
+  const [ghostLocs, setGhostLocs] = useState<LocationGroup[]>([])
+  const [unassignedItems, setUnassignedItems] = useState<StockCard[]>([])
   const [totalItems, setTotalItems] = useState<number | null>(null)
   
   // Dashboard Telemetry State
   const [lowStockCount, setLowStockCount] = useState(0)
   const [mrpItemCount, setMrpItemCount] = useState(0)
-  const [recentActivity, setRecentActivity] = useState<any[]>([])
+  const [recentActivity, setRecentActivity] = useState<RecentActivityRow[]>([])
   const [loading, setLoading] = useState(true)
 
   const fetchData = async () => {
@@ -38,20 +66,20 @@ function DashboardContent() {
       supabase.from('inventory_movements').select('*, materials(name), locations(name)').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(15)
     ])
 
-    const locationsList = locRes.data || []
-    const materialsList = matRes.data || []
-    const stockList = stockRes.data || []
-    const unitsList = unitRes.data || []
+    const locationsList: LocationRow[] = locRes.data ?? []
+    const materialsList: MaterialRow[] = matRes.data ?? []
+    const stockList: StockByLocationRow[] = stockRes.data ?? []
+    const unitsList: UnitRow[] = unitRes.data ?? []
     
-    if (activityRes.data) setRecentActivity(activityRes.data)
+    if (activityRes.data) setRecentActivity(activityRes.data as RecentActivityRow[])
 
-    const displayCards: any[] = []
+    const displayCards: StockCard[] = []
     let lowStockTracker = 0
     let mrpTracker = 0
 
     materialsList.forEach(mat => {
       const unit = unitsList.find(u => String(u.id) === String(mat.unit_id)) || unitsList.find(u => u.name === mat.unit_id)
-      const unitStr = unit ? (unit.abbreviation || unit.name) : 'QTY'
+      const unitStr = unit ? unit.name : 'QTY'
       const stocksForMat = stockList.filter(s => String(s.material_id) === String(mat.id))
       const threshold = mat.is_mrp_enabled ? (mat.reorder_point || 0) : 0
       
@@ -62,19 +90,21 @@ function DashboardContent() {
       if (stocksForMat.length > 0) {
          stocksForMat.forEach(stock => {
            totalStockForMat += stock.quantity
-           displayCards.push({
+           const card: StockCard = {
              id: `${mat.id}-${stock.location_id}`, 
              material_id: mat.id, name: mat.name, unit: unitStr,
              reorder_point: mat.reorder_point, is_mrp_enabled: mat.is_mrp_enabled,
              location_id: stock.location_id, quantity: stock.quantity
-           })
+           }
+           displayCards.push(card)
          })
       } else {
-         displayCards.push({
+         const card: StockCard = {
            id: `${mat.id}-default`, material_id: mat.id, name: mat.name, unit: unitStr,
            reorder_point: mat.reorder_point, is_mrp_enabled: mat.is_mrp_enabled,
            location_id: mat.default_location_id, quantity: 0 
-         })
+         }
+         displayCards.push(card)
       }
 
       if (totalStockForMat <= threshold) lowStockTracker++
@@ -84,15 +114,19 @@ function DashboardContent() {
     setMrpItemCount(mrpTracker)
 
     // Process locations with items vs ghost locations, plus add default items count
-    const processedLocations = locationsList.map(loc => {
-      const items = displayCards.filter(card => card.location_id === loc.id).sort((a, b) => a.name.localeCompare(b.name))
+    const processedLocations: LocationGroup[] = locationsList.map((loc) => {
+      const items = displayCards
+        .filter((card) => card.location_id === loc.id)
+        .sort((a, b) => a.name.localeCompare(b.name))
       const defaultCount = materialsList.filter(m => m.default_location_id === loc.id).length
       return { ...loc, items, defaultCount }
     })
 
     const active = processedLocations.filter(loc => loc.items.length > 0)
     const ghost = processedLocations.filter(loc => loc.items.length === 0)
-    const newUnassignedItems = displayCards.filter(card => !card.location_id).sort((a, b) => a.name.localeCompare(b.name))
+    const newUnassignedItems: StockCard[] = displayCards
+      .filter((card) => !card.location_id)
+      .sort((a, b) => a.name.localeCompare(b.name))
 
     setActiveLocs(active)
     setGhostLocs(ghost)
@@ -235,7 +269,7 @@ function DashboardContent() {
 
                       {/* Item Rows */}
                       <div className="flex flex-col">
-                        {group.items.map((item: any) => <StockRow key={item.id} item={item} router={router} />)}
+                        {group.items.map((item) => <StockRow key={item.id} item={item} />)}
                         
                         {/* Quick Add Row */}
                         <Link href={`/materials/new?location_id=${group.id}`} className="flex items-center gap-2 py-2.5 px-4 text-[9px] font-black uppercase tracking-widest text-gray-600 hover:text-purple-400 hover:bg-white/[0.04] transition-colors border-t border-gray-800/40">
@@ -257,7 +291,7 @@ function DashboardContent() {
                       <span className="text-[8px] font-black uppercase tracking-widest text-yellow-600 bg-yellow-950/50 px-2 py-1 rounded-md border border-yellow-900/50">{unassignedItems.length} On Hand</span>
                     </div>
                     <div className="flex flex-col">
-                      {unassignedItems.map((item: any) => <StockRow key={item.id} item={item} router={router} />)}
+                      {unassignedItems.map((item) => <StockRow key={item.id} item={item} />)}
                     </div>
                   </section>
                 )}
@@ -318,7 +352,7 @@ function DashboardContent() {
                {recentActivity.length === 0 ? (
                  <p className="text-[10px] text-gray-600 font-bold italic py-4">No recent movements.</p>
                ) : (
-                 recentActivity.map(act => (
+                 recentActivity.map((act) => (
                    <div key={act.id} className="flex items-center justify-between py-2 border-b border-gray-800/30 last:border-0 group cursor-default">
                      <div className="flex items-center gap-3 overflow-hidden">
                        <div className={`shrink-0 flex items-center justify-center w-6 h-6 rounded-md bg-[#0f0f0f] border ${act.movement_type.includes('IN') ? 'border-purple-500/20 text-purple-400' : act.movement_type.includes('TRANSFER') ? 'border-blue-500/20 text-blue-400' : 'border-yellow-500/20 text-yellow-500'}`}>
@@ -329,7 +363,9 @@ function DashboardContent() {
                          <p className="text-[11px] font-semibold text-gray-500 italic truncate">{act.materials?.name || 'Unknown'}</p>
                          <p className="text-[8px] font-black uppercase tracking-widest text-gray-600 truncate mt-0.5">
                            {act.locations?.name || 'Unassigned'} 
-                           <span className="text-gray-700 ml-1.5 font-medium tracking-normal normal-case">• {new Date(act.created_at).toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}</span>
+                           <span className="text-gray-700 ml-1.5 font-medium tracking-normal normal-case">
+                             • {act.created_at ? new Date(act.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '--:--'}
+                           </span>
                          </p>
                        </div>
                      </div>
@@ -349,7 +385,8 @@ function DashboardContent() {
 }
 
 // Sleek Table-Row Component for Inventory Items
-function StockRow({ item, router }: { item: any, router: any }) {
+function StockRow({ item}: { item: StockCard }) {
+  const router = useRouter()
   const threshold = item.is_mrp_enabled ? (item.reorder_point || 0) : 0
   const isOut = item.quantity <= 0
   const isLowStock = !isOut && item.quantity <= threshold

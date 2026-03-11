@@ -1,86 +1,129 @@
 'use client'
 import { supabase } from '@/utils/supabase'
+import type { Tables, TablesInsert } from '@/types/database.types'
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Package, ArrowRight, PartyPopper } from 'lucide-react'
 
+/** Invite row with joined organization name (from select('*, organizations(name)')) */
+type InviteRow = Tables<'invites'>
+type InviteWithOrg = InviteRow & { organizations: { name: string } | null }
+
+/** Insert payload for organization_members when claiming an invite */
+type OrgMemberInsert = TablesInsert<'organization_members'>
+
 function LoginForm() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const inviteId = searchParams.get('invite_id')
-
-  const [isSignUp, setIsSignUp] = useState(!!inviteId)
-  const [loading, setLoading] = useState(true)
-  const [message, setMessage] = useState('')
-  const [inviteData, setInviteData] = useState<any>(null)
-
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [fullName, setFullName] = useState('')
-
-  useEffect(() => {
-      async function initializeFlow() {
-          let currentInvite = null;
-
-          if (inviteId) {
-              const { data } = await supabase.from('invites').select('*, organizations(name)').eq('id', inviteId).single()
-              if (data) {
-                  setInviteData(data)
-                  currentInvite = data
-              } else setMessage("This invite link is invalid or has already been used.")
-          }
-
-          const { data: { session } } = await supabase.auth.getSession()
-          
-          if (session) {
-              if (currentInvite) {
-                  await claimInvite(currentInvite.organization_id, session.user.id, currentInvite.role)
-                  router.push('/')
-              } else {
-                  router.push('/')
-              }
-          } else {
-              setLoading(false)
-          }
-      }
-      initializeFlow()
-  }, [inviteId, router])
-
-  const claimInvite = async (orgId: string, userId: string, role: string) => {
-      const { error } = await supabase.from('organization_members').insert([{ organization_id: orgId, user_id: userId, role: role }])
-      if (error && error.code !== '23505') throw error
-      await supabase.from('invites').delete().eq('id', inviteId)
-  }
-
-  const handleAuth = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setMessage('')
-
-    try {
-        if (isSignUp) {
-            const { data: authData, error: authError } = await supabase.auth.signUp({
-                email, password, options: { data: { full_name: fullName } }
-            })
-            if (authError) throw authError
-            if (!authData.user) throw new Error("Failed to create account.")
-
-            if (inviteData) await claimInvite(inviteData.organization_id, authData.user.id, inviteData.role)
-            
-            // Send to root. Context will intercept and route to /settings if no org exists.
-            router.push('/') 
-        } else {
-            const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password })
-            if (error) throw error
-            
-            if (inviteData) await claimInvite(inviteData.organization_id, authData.user.id, inviteData.role)
-            router.push('/')
+    const router = useRouter()
+    const searchParams = useSearchParams()
+    const inviteId = searchParams.get('invite_id')
+  
+    const [isSignUp, setIsSignUp] = useState(!!inviteId)
+    const [loading, setLoading] = useState(true)
+    const [message, setMessage] = useState('')
+    const [inviteData, setInviteData] = useState<InviteWithOrg | null>(null)
+  
+    const [email, setEmail] = useState('')
+    const [password, setPassword] = useState('')
+    const [fullName, setFullName] = useState('')
+  
+    // 1. MOVED claimInvite OUTSIDE so both useEffect and handleAuth can use it
+    async function claimInvite(
+        userId: string,
+        inviteIdParam: string,
+        role: string
+    ): Promise<void> {
+        const { data: invite, error: fetchErr } = await supabase
+            .from('invites')
+            .select('id, organization_id, role')
+            .eq('id', inviteIdParam)
+            .single()
+  
+        if (fetchErr || !invite?.organization_id) {
+            throw new Error('Invalid or already used invite.')
         }
-    } catch (err: any) {
-        setMessage(err.message || "An error occurred.")
-        setLoading(false)
+  
+        const insertPayload: OrgMemberInsert = {
+            organization_id: invite.organization_id,
+            user_id: userId,
+            role,
+        }
+        
+        const { error: insertError } = await supabase
+            .from('organization_members')
+            .insert(insertPayload)
+            
+        if (insertError && insertError.code !== '23505') throw insertError
+  
+        await supabase.from('invites').delete().eq('id', inviteIdParam)
     }
-  }
+  
+    useEffect(() => {
+        async function initializeFlow() {
+            let currentInvite: InviteWithOrg | null = null
+  
+            if (inviteId) {
+                const { data, error } = await supabase
+                    .from('invites')
+                    .select('*, organizations(name)')
+                    .eq('id', inviteId)
+                    .single()
+                    
+                if (error || !data) {
+                    setMessage("This invite link is invalid or has already been used.")
+                } else {
+                    setInviteData(data as InviteWithOrg)
+                    currentInvite = data as InviteWithOrg
+                }
+            }
+  
+            const { data: { session } } = await supabase.auth.getSession()
+  
+            if (session && currentInvite?.organization_id) {
+                // Auto-claim if already logged in
+                await claimInvite(session.user.id, inviteId!, currentInvite.role ?? 'viewer')
+                router.push('/')
+            } else if (session) {
+                router.push('/')
+            } else {
+                setLoading(false)
+            }
+        }
+        initializeFlow()
+    }, [inviteId, router])
+  
+    const handleAuth = async (e: React.FormEvent) => {
+      e.preventDefault()
+      setLoading(true)
+      setMessage('')
+  
+      try {
+          if (isSignUp) {
+              const { data: authData, error: authError } = await supabase.auth.signUp({
+                  email, password, options: { data: { full_name: fullName } }
+              })
+              if (authError) throw authError
+              if (!authData.user) throw new Error("Failed to create account.")
+  
+              if (inviteId) {
+                  // 2. FIXED: Now dynamically grabs the role from the invite instead of hardcoding 'viewer'
+                  await claimInvite(authData.user.id, inviteId, inviteData?.role ?? 'viewer')
+              }
+  
+              router.push('/')
+          } else {
+              const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password })
+              if (error) throw error
+  
+              if (inviteId && authData.user) {
+                  await claimInvite(authData.user.id, inviteId, inviteData?.role ?? 'viewer')
+              }
+              router.push('/')
+          }
+      } catch (err: unknown) {
+          setMessage(err instanceof Error ? err.message : "An error occurred.")
+          setLoading(false)
+      }
+    }
 
   if (loading) return <div className="animate-pulse font-black text-purple-500 uppercase tracking-widest text-xs">Authenticating...</div>
 

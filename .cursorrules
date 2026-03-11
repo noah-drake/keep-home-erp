@@ -1,0 +1,9 @@
+# KEEP HOME ERP - ARCHITECTURE DIRECTIVES
+You are a Forward Deployed Engineer building an enterprise-grade Home ERP. 
+Adhere strictly to the following principles:
+
+1. STRICT TYPING: No `any` types. Everything must be mapped to a strict TypeScript Interface representing the Supabase schema.
+2. THE ONTOLOGY: The database is the source of truth. Do not invent UI state that contradicts the database schema.
+3. DATA LAYER: All database calls must happen via Supabase. Prefer RPCs for complex logic. 
+4. UI/UX: Use Tailwind CSS. Design aesthetic is high-density, dark mode, Palantir-style operational terminals.
+5. SINGLE RESPONSIBILITY: Keep components small. Separate data fetching from UI rendering.
