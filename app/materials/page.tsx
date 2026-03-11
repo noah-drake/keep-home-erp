@@ -2,7 +2,7 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { useOrganization } from '../context/OrganizationContext'
-import { Package, Plus, Search, MoreVertical, Edit2, Trash2, Ban, ArrowLeftRight, ClipboardCheck, Shield, AlertCircle, CheckCircle2, MapPin, Box } from 'lucide-react'
+import { Package, Plus, Search, MoreVertical, Edit2, Trash2, Ban, ArrowLeftRight, ClipboardCheck, Shield, AlertCircle, CheckCircle2, MapPin, Box, Database } from 'lucide-react'
 import { supabase } from '@/utils/supabase'
 
 function GoodsPageContent() {
@@ -83,9 +83,20 @@ function GoodsPageContent() {
               <Package size={12} className="text-purple-500" /> Master Data Registry
             </p>
           </div>
-          <button onClick={() => router.push('/materials/new')} className="bg-purple-600 hover:bg-purple-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20 active:scale-95">
-            <Plus size={16} /> Add Good
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push('/materials/import')}
+              className="bg-[#0f0f0f] border border-gray-800 hover:border-purple-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-purple-900/10 active:scale-95 text-gray-200 hover:text-white"
+            >
+              <Database size={16} className="text-purple-500" /> Bulk Import
+            </button>
+            <button
+              onClick={() => router.push('/materials/new')}
+              className="bg-purple-600 hover:bg-purple-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20 active:scale-95"
+            >
+              <Plus size={16} /> Add Good
+            </button>
+          </div>
         </div>
 
         {/* SEARCH */}
