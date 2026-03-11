@@ -64,7 +64,7 @@ function ItemMasterContent() {
         supabase.from('inventory_movements').select('*, locations(name)').eq('material_id', itemId).order('created_at', { ascending: false }).limit(10)
       ])
 
-      if (roleRes.data) setIsAdmin(['admin', 'owner'].includes(roleRes.data.role))
+      if (roleRes.data) setIsAdmin(['admin', 'owner'].includes(roleRes.data.role || ''))
       if (catRes.data) setCategories(catRes.data)
       if (unitRes.data) setUnits(unitRes.data)
       if (locRes.data) setLocations(locRes.data)

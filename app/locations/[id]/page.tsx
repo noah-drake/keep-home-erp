@@ -33,7 +33,7 @@ function StoreDossierContent() {
         supabase.from('view_stock_by_location').select('*').eq('location_id', locId).gt('quantity', 0).order('material_name')
       ])
 
-      if (roleRes.data) setIsAdmin(['admin', 'owner'].includes(roleRes.data.role))
+      if (roleRes.data) setIsAdmin(['admin', 'owner'].includes(roleRes.data.role || ''))
       if (locRes.data) setName(locRes.data.name)
       if (itemsRes.data) setItems(itemsRes.data)
       

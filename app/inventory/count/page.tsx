@@ -44,7 +44,11 @@ function CountEngineContent() {
       if (data) {
         setExpectedStock(data)
         const initialCounts: Record<string, string> = {}
-        data.forEach(item => initialCounts[item.material_id] = String(item.quantity))
+        data.forEach(item => {
+          if (item.material_id) {
+            initialCounts[String(item.material_id)] = String(item.quantity)
+          }
+        })
         setCounts(initialCounts)
       }
     }

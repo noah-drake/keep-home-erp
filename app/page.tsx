@@ -89,12 +89,12 @@ function DashboardContent() {
 
       if (stocksForMat.length > 0) {
          stocksForMat.forEach(stock => {
-           totalStockForMat += stock.quantity
+           totalStockForMat += stock.quantity ?? 0
            const card: StockCard = {
              id: `${mat.id}-${stock.location_id}`, 
              material_id: mat.id, name: mat.name, unit: unitStr,
              reorder_point: mat.reorder_point, is_mrp_enabled: mat.is_mrp_enabled,
-             location_id: stock.location_id, quantity: stock.quantity
+             location_id: stock.location_id, quantity: stock.quantity ?? 0
            }
            displayCards.push(card)
          })

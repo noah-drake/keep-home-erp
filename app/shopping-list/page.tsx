@@ -30,11 +30,14 @@ function ReplenishmentContent() {
 
     if (data) {
       // Filter logic: Must be active, must have an MRP (>0), and stock must be <= MRP
-      const procurementList = data.filter(i => 
-        i.is_active !== false && 
-        i.reorder_point > 0 && 
-        i.current_stock <= i.reorder_point
-      )
+      const procurementList = data.filter(i => {
+        // Fallback to 0 if the database view returns null
+        const stock = i.current_stock ?? 0;
+        const reorder = i.reorder_point ?? 0;
+        
+        // Use the correct 'active' column name and safe math
+        return i.active !== false && reorder > 0 && stock <= reorder;
+      })
       setItems(procurementList)
     }
     setLoading(false)

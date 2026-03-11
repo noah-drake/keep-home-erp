@@ -40,14 +40,14 @@ function CategoriesContent() {
     else { setNewName(''); fetchCategories(); }
   }
 
-  const handleUpdate = async (id: string) => {
+  const handleUpdate = async (id: number) => {
     if (!editName.trim()) return
     const { error } = await supabase.from('categories').update({ name: editName }).eq('id', id)
     if (error) alert(error.message)
     else { setEditingId(null); fetchCategories(); }
   }
 
-  const handleDelete = async (id: string, name: string) => {
+  const handleDelete = async (id: number, name: string) => {
     // Relational Lock: Check if any materials use this category_id
     const { count } = await supabase.from('materials').select('*', { count: 'exact', head: true }).eq('category_id', id)
     if (count && count > 0) return alert(`BLOCKED: Cannot delete "${name}". It is currently assigned to ${count} master goods.`)

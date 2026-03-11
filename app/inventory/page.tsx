@@ -47,8 +47,8 @@ function TransactionEngine() {
         const targetMat = matRes.data.find(m => String(m.id) === urlMaterialId)
         if (targetMat) {
           setPrimaryMaterial(targetMat)
-          const itemStock = sblRes.data?.filter(s => String(s.material_id) === urlMaterialId && s.quantity > 0) || []
-          const totalStock = itemStock.reduce((sum, s) => sum + s.quantity, 0)
+          const itemStock = sblRes.data?.filter(s => String(s.material_id) === urlMaterialId && (s.quantity ?? 0) > 0) || []
+          const totalStock = itemStock.reduce((sum, s) => sum + (s.quantity ?? 0), 0)
           
           if (totalStock <= 0) {
              // Out of stock: Default to Inbound & Default Location
@@ -58,7 +58,7 @@ function TransactionEngine() {
           } else if (itemStock.length === 1) {
              // In stock in exactly ONE location: Default to Outbound & auto-select that location
              initType = 'OUTBOUND'
-             initLoc = itemStock[0].location_id
+             initLoc = itemStock[0].location_id || ''
           }
         }
       }
