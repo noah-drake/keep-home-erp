@@ -70,6 +70,12 @@ function DashboardContent() {
     const materialsList: MaterialRow[] = matRes.data ?? []
     const stockList: StockByLocationRow[] = stockRes.data ?? []
     const unitsList: UnitRow[] = unitRes.data ?? []
+
+    // Brand-new orgs with no Stores and no Goods go through onboarding first.
+    if (locationsList.length === 0 && (countRes.count ?? 0) === 0) {
+      router.push('/onboarding')
+      return
+    }
     
     if (activityRes.data) setRecentActivity(activityRes.data as RecentActivityRow[])
 
