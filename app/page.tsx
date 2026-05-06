@@ -22,6 +22,24 @@ type RecentActivityRow = InventoryMovementRow & {
   locations: { name: string } | null
 }
 
+type DashboardMetrics = {
+  total_materials_count: number
+  mrp_item_count: number
+  low_stock_count: number
+  unassigned_items_count: number
+  active_locations_count: number
+  ghost_locations_count: number
+}
+
+type DashboardRpcPayload = {
+  metrics: DashboardMetrics
+  locations: LocationRow[]
+  materials_active: MaterialRow[]
+  stock_by_location: StockByLocationRow[]
+  units: UnitRow[]
+  recent_activity: RecentActivityRow[]
+}
+
 type StockCard = {
   id: string
   material_id: MaterialRow['id']
@@ -56,46 +74,43 @@ function DashboardContent() {
   const fetchData = async () => {
     if (!organization) return
     setLoading(true)
-    
-    const [locRes, matRes, countRes, stockRes, unitRes, activityRes] = await Promise.all([
-      supabase.from('locations').select('*').eq('organization_id', organization.id).order('name'),
-      supabase.from('materials').select('*').eq('organization_id', organization.id).eq('is_active', true),
-      supabase.from('materials').select('*', { count: 'exact', head: true }).eq('organization_id', organization.id),
-      supabase.from('view_stock_by_location').select('*').eq('organization_id', organization.id).gt('quantity', 0),
-      supabase.from('units').select('*').or(`organization_id.eq.${organization.id},organization_id.is.null`),
-      supabase.from('inventory_movements').select('*, materials(name), locations(name)').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(15)
-    ])
 
-    const locationsList: LocationRow[] = locRes.data ?? []
-    const materialsList: MaterialRow[] = matRes.data ?? []
-    const stockList: StockByLocationRow[] = stockRes.data ?? []
-    const unitsList: UnitRow[] = unitRes.data ?? []
+    const { data: rpcData, error: rpcError } = await supabase.rpc('get_dashboard_metrics', {
+      org_id: organization.id,
+    })
+
+    if (rpcError || rpcData == null || typeof rpcData !== 'object' || Array.isArray(rpcData)) {
+      console.error('get_dashboard_metrics failed', rpcError ?? rpcData)
+      setLoading(false)
+      return
+    }
+
+    const payload = rpcData as unknown as DashboardRpcPayload
+    const locationsList: LocationRow[] = payload.locations ?? []
+    const materialsList: MaterialRow[] = payload.materials_active ?? []
+    const stockList: StockByLocationRow[] = payload.stock_by_location ?? []
+    const unitsList: UnitRow[] = payload.units ?? []
+    const metrics = payload.metrics
 
     // Brand-new orgs with no Stores and no Goods go through onboarding first.
-    if (locationsList.length === 0 && (countRes.count ?? 0) === 0) {
+    if (locationsList.length === 0 && (metrics?.total_materials_count ?? 0) === 0) {
       router.push('/onboarding')
       return
     }
-    
-    if (activityRes.data) setRecentActivity(activityRes.data as RecentActivityRow[])
+
+    setRecentActivity((payload.recent_activity ?? []) as RecentActivityRow[])
+    setLowStockCount(Number(metrics?.low_stock_count ?? 0))
+    setMrpItemCount(Number(metrics?.mrp_item_count ?? 0))
 
     const displayCards: StockCard[] = []
-    let lowStockTracker = 0
-    let mrpTracker = 0
 
     materialsList.forEach(mat => {
       const unit = unitsList.find(u => String(u.id) === String(mat.unit_id)) || unitsList.find(u => u.name === mat.unit_id)
       const unitStr = unit ? unit.name : 'QTY'
       const stocksForMat = stockList.filter(s => String(s.material_id) === String(mat.id))
-      const threshold = mat.is_mrp_enabled ? (mat.reorder_point || 0) : 0
-      
-      if (mat.is_mrp_enabled) mrpTracker++
-      
-      let totalStockForMat = 0
 
       if (stocksForMat.length > 0) {
          stocksForMat.forEach(stock => {
-           totalStockForMat += stock.quantity ?? 0
            const card: StockCard = {
              id: `${mat.id}-${stock.location_id}`, 
              material_id: mat.id, name: mat.name, unit: unitStr,
@@ -112,12 +127,7 @@ function DashboardContent() {
          }
          displayCards.push(card)
       }
-
-      if (totalStockForMat <= threshold) lowStockTracker++
     })
-
-    setLowStockCount(lowStockTracker)
-    setMrpItemCount(mrpTracker)
 
     // Process locations with items vs ghost locations, plus add default items count
     const processedLocations: LocationGroup[] = locationsList.map((loc) => {
@@ -137,7 +147,7 @@ function DashboardContent() {
     setActiveLocs(active)
     setGhostLocs(ghost)
     setUnassignedItems(newUnassignedItems)
-    setTotalItems(countRes.count || 0)
+    setTotalItems(Number(metrics?.total_materials_count ?? 0))
     
     setLoading(false)
   }
