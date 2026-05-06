@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowRight, CheckCircle2, Database, Package, Plus, Store, Warehouse } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Database, Package, Plus, Store, Warehouse } from 'lucide-react'
 
 import { supabase } from '@/utils/supabase'
 import { useOrganization } from '@/app/context/OrganizationContext'
@@ -15,22 +15,27 @@ type StoreBucket = {
   stores: string[]
 }
 
-type SuggestedGroup = {
-  label: string
-  goods: string[]
-}
+/** Global catalog rows (template materials) — cloned into the org Keep on commit */
+type GlobalCatalogMaterial = Pick<
+  Tables<'materials'>,
+  | 'id'
+  | 'name'
+  | 'description'
+  | 'category_id'
+  | 'unit_id'
+  | 'reorder_point'
+  | 'lot_quantity'
+  | 'is_mrp_enabled'
+> &
+  Partial<Pick<Tables<'materials'>, 'category' | 'barcode' | 'is_active'>>
 
-type GoodSource = 'suggested' | 'custom'
-
-type WizardGood = {
-  id: string
+type CustomWizardLine = {
+  clientId: string
   name: string
-  source: GoodSource
-  categoryLabel: string
-  description: string | null
-  shareToGlobal: boolean
+  reorder_point: number | null
+  lot_quantity: number | null
+  shareGlobal: boolean
   storeName: string | null
-  quantity: number
 }
 
 type OrganizationCtx = {
@@ -38,7 +43,6 @@ type OrganizationCtx = {
 }
 
 type LocationInsert = TablesInsert<'locations'>
-type GlobalGoodInsert = TablesInsert<'global_goods'>
 type MaterialInsert = TablesInsert<'materials'>
 type MovementInsert = TablesInsert<'inventory_movements'>
 type InsertedLocation = Pick<Tables<'locations'>, 'id' | 'name'>
@@ -88,22 +92,39 @@ const STORE_BUCKETS: StoreBucket[] = [
   },
 ]
 
-const SUGGESTED_GOODS: SuggestedGroup[] = [
-  { label: 'Food/Perishables', goods: ['Eggs', 'Milk', 'Bread', 'Ground Beef', 'Chicken Breast', 'Butter', 'Cheese'] },
-  {
-    label: 'Pantry/Dry Goods',
-    goods: ['Coffee', 'Pasta', 'Rice', 'Canned Beans', 'Olive Oil', 'Flour', 'Sugar', 'Cereal'],
-  },
-  {
-    label: 'Consumables',
-    goods: ['AA Batteries', 'AAA Batteries', 'Trash Bags (13 Gal)', 'Paper Towels', 'Toilet Paper', 'Ziploc Bags'],
-  },
-  { label: 'Cleaning', goods: ['Glass Cleaner', 'Dish Soap', 'Laundry Detergent', 'Bleach', 'Sponges', 'Multi-Surface Cleaner'] },
-  { label: 'Maintenance', goods: ['WD-40', 'HVAC Air Filters', 'Lightbulbs (LED 60W)', 'Duct Tape', 'Zip Ties'] },
-]
+function parseOptionalInt(value: string): number | null {
+  const t = value.trim()
+  if (!t) return null
+  const n = Number(t)
+  return Number.isFinite(n) ? n : null
+}
 
-function normalizeKey(v: string): string {
-  return v.trim().toLowerCase()
+/** Local clone payload from a global template row */
+function buildClonePayload(
+  source: GlobalCatalogMaterial,
+  organizationId: string,
+  defaultLocationId: string | null
+): MaterialInsert {
+  return {
+    name: source.name,
+    description: source.description,
+    category: source.category ?? null,
+    category_id: source.category_id,
+    unit_id: source.unit_id,
+    reorder_point: source.reorder_point,
+    lot_quantity: source.lot_quantity,
+    is_mrp_enabled: source.is_mrp_enabled,
+    barcode: source.barcode ?? null,
+    is_active: source.is_active ?? true,
+    organization_id: organizationId,
+    default_location_id: defaultLocationId,
+    is_global: false,
+  }
+}
+
+/** DB allows null org on global-shared rows; generated Insert types may lag — assertion at insert site */
+type GlobalCatalogSharePayload = Omit<TablesInsert<'materials'>, 'organization_id'> & {
+  organization_id?: string | null
 }
 
 export default function OnboardingPage() {
@@ -114,36 +135,84 @@ export default function OnboardingPage() {
   const [selectedStores, setSelectedStores] = useState<string[]>([])
   const [customStoreInput, setCustomStoreInput] = useState('')
 
-  const [selectedGoods, setSelectedGoods] = useState<WizardGood[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(true)
+  const [catalogError, setCatalogError] = useState('')
+  const [globalCatalog, setGlobalCatalog] = useState<GlobalCatalogMaterial[]>([])
 
+  /** Global template material id → store name (exclusive assignment) */
+  const [assignedStoreByCatalogId, setAssignedStoreByCatalogId] = useState<Record<string, string>>({})
+
+  const [customLines, setCustomLines] = useState<CustomWizardLine[]>([])
   const [customGoodName, setCustomGoodName] = useState('')
-  const [customGoodDescription, setCustomGoodDescription] = useState('')
+  const [customReorderPoint, setCustomReorderPoint] = useState('')
+  const [customLotQty, setCustomLotQty] = useState('')
   const [customGoodStore, setCustomGoodStore] = useState<string>('')
-  const [customGoodShareGlobal, setCustomGoodShareGlobal] = useState(false)
+  const [customShareGlobal, setCustomShareGlobal] = useState(false)
+
+  /** quantity key: `catalog:${materialId}` or `custom:${clientId}` */
+  const [quantities, setQuantities] = useState<Record<string, number>>({})
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  useEffect(() => {
+    let cancelled = false
+
+    async function fetchGlobalCatalog() {
+      setCatalogLoading(true)
+      setCatalogError('')
+      try {
+        const { data, error: qErr } = await supabase
+          .from('materials')
+          .select(
+            'id, name, description, category_id, category, unit_id, reorder_point, lot_quantity, is_mrp_enabled, barcode, is_active'
+          )
+          .eq('is_global', true)
+
+        if (cancelled) return
+        if (qErr) throw qErr
+        setGlobalCatalog((data as GlobalCatalogMaterial[]) ?? [])
+      } catch (e: unknown) {
+        if (!cancelled) setCatalogError(e instanceof Error ? e.message : 'Failed to load catalog.')
+      } finally {
+        if (!cancelled) setCatalogLoading(false)
+      }
+    }
+
+    void fetchGlobalCatalog()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const storesSorted = useMemo(() => [...selectedStores].sort((a, b) => a.localeCompare(b)), [selectedStores])
 
-  const selectedGoodKeys = useMemo(() => {
-    const keys = new Set<string>()
-    for (const g of selectedGoods) {
-      if (g.source === 'suggested') keys.add(normalizeKey(g.name))
-    }
-    return keys
-  }, [selectedGoods])
+  const catalogItemsForStore = useMemo(() => {
+    return (storeName: string) =>
+      globalCatalog.filter((m) => {
+        const assigned = assignedStoreByCatalogId[m.id]
+        return !assigned || assigned === storeName
+      })
+  }, [globalCatalog, assignedStoreByCatalogId])
 
-  function toggleStore(name: string) {
-    setSelectedStores((prev) =>
-      prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]
-    )
+  function toggleCatalogAssignment(catalogMaterialId: string, storeName: string) {
+    setAssignedStoreByCatalogId((prev) => {
+      const current = prev[catalogMaterialId]
+      if (current === storeName) {
+        const { [catalogMaterialId]: _, ...rest } = prev
+        return rest
+      }
+      return { ...prev, [catalogMaterialId]: storeName }
+    })
+  }
+
+  const toggleStore = (name: string) => {
+    setSelectedStores((prev) => (prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]))
   }
 
   function addCustomStore() {
     const normalized = customStoreInput.trim()
     if (!normalized) return
-
     setSelectedStores((prev) => (prev.includes(normalized) ? prev : [...prev, normalized]))
     setCustomStoreInput('')
   }
@@ -155,67 +224,50 @@ export default function OnboardingPage() {
     }
   }
 
-  function toggleSuggestedGood(name: string, categoryLabel: string) {
-    const key = normalizeKey(name)
-    setSelectedGoods((prev) => {
-      const exists = prev.find((g) => g.source === 'suggested' && normalizeKey(g.name) === key)
-      if (exists) return prev.filter((g) => !(g.source === 'suggested' && normalizeKey(g.name) === key))
-
-      return [
-        ...prev,
-        {
-          id: `suggested-${key}`,
-          name,
-          source: 'suggested',
-          categoryLabel,
-          description: null,
-          shareToGlobal: false,
-          storeName: null,
-          quantity: 0,
-        },
-      ]
-    })
-  }
-
-  function updateGoodStore(goodId: string, storeName: string) {
-    setSelectedGoods((prev) =>
-      prev.map((g) => (g.id === goodId ? { ...g, storeName: storeName || null } : g))
-    )
-  }
-
   function addCustomGood() {
     const name = customGoodName.trim()
-    if (!name) return
+    if (!name || !customGoodStore) return
 
-    setSelectedGoods((prev) => [
-      ...prev,
-      {
-        id: `custom-${crypto.randomUUID()}`,
-        name,
-        source: 'custom',
-        categoryLabel: 'Custom',
-        description: customGoodDescription.trim() || null,
-        shareToGlobal: customGoodShareGlobal,
-        storeName: customGoodStore || null,
-        quantity: 0,
-      },
-    ])
+    const clientId = `custom-${crypto.randomUUID()}`
+    const reorderPoint = parseOptionalInt(customReorderPoint)
+    const lotQty = parseOptionalInt(customLotQty)
+
+    const line: CustomWizardLine = {
+      clientId,
+      name,
+      reorder_point: reorderPoint,
+      lot_quantity: lotQty,
+      shareGlobal: customShareGlobal,
+      storeName: customGoodStore || null,
+    }
+
+    setCustomLines((prev) => [...prev, line])
+    setQuantities((q) => ({ ...q, [`custom:${clientId}`]: 0 }))
 
     setCustomGoodName('')
-    setCustomGoodDescription('')
+    setCustomReorderPoint('')
+    setCustomLotQty('')
     setCustomGoodStore('')
-    setCustomGoodShareGlobal(false)
+    setCustomShareGlobal(false)
   }
 
-  function setQuantity(goodId: string, value: string) {
+  const auditCatalogEntries = useMemo(() => {
+    return Object.entries(assignedStoreByCatalogId).map(([materialId, storeName]) => {
+      const item = globalCatalog.find((m) => m.id === materialId)
+      return { materialId, storeName, item }
+    }).filter((e): e is { materialId: string; storeName: string; item: GlobalCatalogMaterial } => !!e.item)
+  }, [assignedStoreByCatalogId, globalCatalog])
+
+  const hasAssignments = auditCatalogEntries.length > 0 || customLines.length > 0
+
+  function setQuantityForKey(lineKey: string, value: string) {
     const parsed = Number(value)
-    const quantity = Number.isFinite(parsed) && parsed > 0 ? parsed : 0
-    setSelectedGoods((prev) => prev.map((g) => (g.id === goodId ? { ...g, quantity } : g)))
+    const q = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0
+    setQuantities((prev) => ({ ...prev, [lineKey]: q }))
   }
 
   async function initializeKeep() {
     setError('')
-
     if (!organization?.id) {
       setError('No active organization found. Create/select a chamber first.')
       return
@@ -224,14 +276,13 @@ export default function OnboardingPage() {
       setError('Select at least one store before initializing.')
       return
     }
-    if (selectedGoods.length === 0) {
-      setError('Select or create at least one good before initializing.')
+    if (!hasAssignments) {
+      setError('Assign at least one catalog good to a store, or add a custom good.')
       return
     }
 
     setSaving(true)
     try {
-      // Step A: Insert stores (locations)
       const locationPayload: LocationInsert[] = storesSorted.map((name) => ({
         name,
         organization_id: organization.id,
@@ -243,76 +294,113 @@ export default function OnboardingPage() {
         .select('id, name')
 
       if (locationErr) throw locationErr
-      if (!insertedLocations || insertedLocations.length === 0) {
-        throw new Error('Failed to create stores.')
-      }
+      if (!insertedLocations || insertedLocations.length === 0) throw new Error('Failed to create stores.')
 
       const locationMap = new Map<string, string>(
         (insertedLocations as InsertedLocation[]).map((loc) => [loc.name, loc.id])
       )
 
-      // Resolve user for global catalog attribution
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      const materialRowsByAuditKey = new Map<string, Pick<Tables<'materials'>, 'id' | 'name' | 'default_location_id'>>()
 
-      // Step B: Insert goods into materials (and global_goods for opted-in custom)
-      const materialByGoodId = new Map<string, Pick<Tables<'materials'>, 'id' | 'name' | 'default_location_id'>>()
-
-      for (const good of selectedGoods) {
-        let globalGoodId: string | null = null
-
-        if (good.source === 'custom' && good.shareToGlobal) {
-          const globalPayload: GlobalGoodInsert = {
-            name: good.name,
-            description: good.description,
-            created_by: user?.id ?? null,
-          }
-          const { data: globalRow, error: globalErr } = await supabase
-            .from('global_goods')
-            .insert(globalPayload)
-            .select('id')
-            .single()
-          if (globalErr) throw globalErr
-          globalGoodId = globalRow.id
-        }
-
-        const mappedLocationId = good.storeName ? locationMap.get(good.storeName) ?? null : null
-        const materialPayload: MaterialInsert = {
-          name: good.name,
-          description: good.description,
-          organization_id: organization.id,
-          default_location_id: mappedLocationId,
-          is_opted_into_global: good.source === 'custom' ? good.shareToGlobal : false,
-          global_good_id: globalGoodId,
-        }
-
-        const { data: materialRow, error: materialErr } = await supabase
+      // Clone global catalog selections into local materials
+      for (const { materialId, storeName, item } of auditCatalogEntries) {
+        const defaultLocationId = locationMap.get(storeName) ?? null
+        const payload = buildClonePayload(item, organization.id, defaultLocationId)
+        const { data: materialRow, error: matErr } = await supabase
           .from('materials')
-          .insert(materialPayload)
+          .insert(payload)
+          .select('id, name, default_location_id')
+          .single()
+        if (matErr) throw matErr
+        materialRowsByAuditKey.set(`catalog:${materialId}`, materialRow)
+      }
+
+      // Customs: local row + optional global template row (materials-only, is_global)
+      for (const line of customLines) {
+        const defaultLocationId = line.storeName ? locationMap.get(line.storeName) ?? null : null
+
+        const localPayload: MaterialInsert = {
+          name: line.name,
+          description: null,
+          organization_id: organization.id,
+          default_location_id: defaultLocationId,
+          reorder_point: line.reorder_point,
+          lot_quantity: line.lot_quantity,
+          is_global: false,
+          is_active: true,
+          is_mrp_enabled: false,
+          category_id: null,
+          unit_id: null,
+          category: null,
+          barcode: null,
+        }
+
+        const { data: localRow, error: localErr } = await supabase
+          .from('materials')
+          .insert(localPayload)
           .select('id, name, default_location_id')
           .single()
 
-        if (materialErr) throw materialErr
-        materialByGoodId.set(good.id, materialRow)
+        if (localErr) throw localErr
+        materialRowsByAuditKey.set(`custom:${line.clientId}`, localRow)
+
+        if (line.shareGlobal) {
+          const globalShare: GlobalCatalogSharePayload = {
+            name: line.name,
+            description: null,
+            organization_id: null,
+            default_location_id: null,
+            reorder_point: line.reorder_point,
+            lot_quantity: line.lot_quantity,
+            is_global: true,
+            is_active: true,
+            category_id: null,
+            category: null,
+            unit_id: null,
+            barcode: null,
+            is_mrp_enabled: false,
+          }
+          const { error: gErr } = await supabase
+            .from('materials')
+            .insert(globalShare as TablesInsert<'materials'>)
+
+          if (gErr) throw gErr
+        }
       }
 
-      // Step C: Insert initial movement logs for positive quantities
-      const movementPayload: MovementInsert[] = selectedGoods
-        .filter((g) => g.quantity > 0)
-        .map((g) => {
-          const material = materialByGoodId.get(g.id)
-          if (!material) throw new Error(`Missing material insert for ${g.name}`)
+      const movementPayload: MovementInsert[] = []
 
-          return {
-            movement_type: 'INBOUND',
-            material_id: material.id,
-            location_id: material.default_location_id,
-            quantity: g.quantity,
-            organization_id: organization.id,
-            material_name: material.name,
-          }
+      for (const { materialId } of auditCatalogEntries) {
+        const key = `catalog:${materialId}`
+        const qty = quantities[key] ?? 0
+        if (qty <= 0) continue
+        const row = materialRowsByAuditKey.get(key)
+        if (!row) continue
+        movementPayload.push({
+          movement_type: 'INBOUND',
+          material_id: row.id,
+          location_id: row.default_location_id,
+          quantity: qty,
+          organization_id: organization.id,
+          material_name: row.name,
         })
+      }
+
+      for (const line of customLines) {
+        const key = `custom:${line.clientId}`
+        const qty = quantities[key] ?? 0
+        if (qty <= 0) continue
+        const row = materialRowsByAuditKey.get(key)
+        if (!row) continue
+        movementPayload.push({
+          movement_type: 'INBOUND',
+          material_id: row.id,
+          location_id: row.default_location_id,
+          quantity: qty,
+          organization_id: organization.id,
+          material_name: row.name,
+        })
+      }
 
       if (movementPayload.length > 0) {
         const { error: movementErr } = await supabase.from('inventory_movements').insert(movementPayload)
@@ -327,9 +415,33 @@ export default function OnboardingPage() {
     }
   }
 
-  const card = 'bg-[#0f0f0f] border border-gray-800/80 rounded-[2rem] shadow-xl'
+  useEffect(() => {
+    setQuantities((prev) => {
+      const managed = new Set<string>([
+        ...auditCatalogEntries.map(({ materialId }) => `catalog:${materialId}`),
+        ...customLines.map((l) => `custom:${l.clientId}`),
+      ])
+      const next = { ...prev }
+      let changed = false
+      for (const k of managed) {
+        if (next[k] === undefined) {
+          next[k] = 0
+          changed = true
+        }
+      }
+      for (const k of Object.keys(next)) {
+        if ((k.startsWith('catalog:') || k.startsWith('custom:')) && !managed.has(k)) {
+          delete next[k]
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [auditCatalogEntries, customLines])
+
   const pillBase =
-    'px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-widest transition-all active:scale-95'
+    'px-3 py-2 rounded-full border text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 truncate max-w-[200px]'
+  const card = 'bg-[#0f0f0f] border border-gray-800/80 rounded-[2rem] shadow-xl'
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
@@ -338,7 +450,7 @@ export default function OnboardingPage() {
           <h1 className="text-4xl font-black uppercase tracking-tighter italic text-gray-100">Day 0 Initialization</h1>
           <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mt-1 flex items-center gap-2">
             <Warehouse size={12} className="text-purple-500" />
-            Establish Stores, Goods, then run Initial Audit
+            Establish Stores, map Goods per Store, then run Initial Audit
           </p>
           <div className="mt-4 flex items-center gap-3 text-[10px] font-black uppercase tracking-widest">
             <span className={step >= 1 ? 'text-purple-400' : 'text-gray-600'}>1. Stores</span>
@@ -349,10 +461,10 @@ export default function OnboardingPage() {
           </div>
         </header>
 
-        {error && (
+        {(error || catalogError) && (
           <div className="p-4 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center gap-3 border bg-red-950/20 border-red-900/50 text-red-400">
-            <CheckCircle2 size={16} />
-            {error}
+            <AlertTriangle size={16} />
+            {error || catalogError}
           </div>
         )}
 
@@ -432,136 +544,146 @@ export default function OnboardingPage() {
             <div className="flex items-center justify-between gap-4 border-b border-gray-800/50 pb-5 mb-6">
               <div>
                 <p className="text-[9px] font-black uppercase tracking-widest text-gray-500">Step 2</p>
-                <h2 className="text-2xl font-black uppercase tracking-tight text-gray-100">Establish Goods</h2>
+                <h2 className="text-2xl font-black uppercase tracking-tight text-gray-100">Map Goods per Store</h2>
+                <p className="text-xs text-gray-500 font-bold mt-2">
+                  Tap a catalog pill inside a Store to assign it there. Assigned goods disappear from other Stores.
+                </p>
               </div>
               <Package size={20} className="text-purple-500" />
             </div>
 
-            <div className="space-y-6">
-              {SUGGESTED_GOODS.map((group) => (
-                <div key={group.label}>
-                  <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-3">{group.label}</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {group.goods.map((goodName) => {
-                      const selected = selectedGoodKeys.has(normalizeKey(goodName))
-                      const selectedRecord = selectedGoods.find(
-                        (g) => g.source === 'suggested' && normalizeKey(g.name) === normalizeKey(goodName)
-                      )
-                      return (
-                        <div
-                          key={`${group.label}-${goodName}`}
-                          className={`border rounded-2xl p-4 transition-colors ${
-                            selected
-                              ? 'bg-purple-900/20 border-purple-500/40'
-                              : 'bg-black border-gray-800 hover:border-gray-600'
-                          }`}
-                        >
-                          <button
-                            onClick={() => toggleSuggestedGood(goodName, group.label)}
-                            className="w-full flex items-center justify-between"
-                          >
-                            <span className="text-sm font-black text-left">{goodName}</span>
-                            <span
-                              className={`text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-md border ${
-                                selected
-                                  ? 'text-purple-300 border-purple-500/50 bg-purple-900/20'
-                                  : 'text-gray-500 border-gray-800 bg-[#0f0f0f]'
-                              }`}
-                            >
-                              {selected ? 'Selected' : 'Select'}
-                            </span>
-                          </button>
-
-                          {selected && selectedRecord && (
-                            <div className="mt-3 border-t border-gray-800/60 pt-3">
-                              <label className="text-[9px] font-black uppercase tracking-widest text-gray-500 block mb-2">
-                                Where do you keep this?
-                              </label>
-                              <select
-                                value={selectedRecord.storeName ?? ''}
-                                onChange={(e) => updateGoodStore(selectedRecord.id, e.target.value)}
-                                className="w-full bg-[#0f0f0f] border border-gray-800 rounded-xl p-3 text-xs font-bold outline-none focus:border-purple-500"
-                              >
-                                <option value="">-- Unassigned --</option>
-                                {storesSorted.map((storeName) => (
-                                  <option key={storeName} value={storeName}>
-                                    {storeName}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ))}
-
-              <div className="bg-black border border-gray-800 rounded-2xl p-4">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-3">Create Custom Good</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <input
-                    value={customGoodName}
-                    onChange={(e) => setCustomGoodName(e.target.value)}
-                    placeholder="Good name"
-                    className="bg-[#0f0f0f] border border-gray-800 p-3 rounded-xl outline-none focus:border-purple-500 text-sm font-bold"
-                  />
-                  <select
-                    value={customGoodStore}
-                    onChange={(e) => setCustomGoodStore(e.target.value)}
-                    className="bg-[#0f0f0f] border border-gray-800 p-3 rounded-xl outline-none focus:border-purple-500 text-sm font-bold"
-                  >
-                    <option value="">Where do you keep this? (optional)</option>
-                    {storesSorted.map((storeName) => (
-                      <option key={storeName} value={storeName}>
-                        {storeName}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    value={customGoodDescription}
-                    onChange={(e) => setCustomGoodDescription(e.target.value)}
-                    placeholder="Description (optional)"
-                    className="md:col-span-2 bg-[#0f0f0f] border border-gray-800 p-3 rounded-xl outline-none focus:border-purple-500 text-sm font-bold"
-                  />
-                </div>
-                <label className="mt-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                  <input
-                    type="checkbox"
-                    checked={customGoodShareGlobal}
-                    onChange={(e) => setCustomGoodShareGlobal(e.target.checked)}
-                    className="accent-purple-500"
-                  />
-                  Share this to the Global Catalog
-                </label>
-                <button
-                  onClick={addCustomGood}
-                  disabled={!customGoodName.trim()}
-                  className={`mt-4 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${
-                    customGoodName.trim()
-                      ? 'bg-purple-600 hover:bg-purple-500 text-white'
-                      : 'bg-gray-900 border border-gray-800 text-gray-600 cursor-not-allowed'
-                  }`}
-                >
-                  <Plus size={12} />
-                  Add Custom Good
-                </button>
+            {catalogLoading ? (
+              <div className="py-16 text-center text-[10px] font-black uppercase tracking-widest text-purple-400 animate-pulse">
+                Loading global catalog...
               </div>
-            </div>
+            ) : (
+              <div className="space-y-6">
+                {storesSorted.map((storeName) => (
+                  <div key={storeName} className="bg-black border border-gray-800 rounded-2xl p-5 space-y-3">
+                    <h3 className="text-[11px] font-black uppercase tracking-widest text-purple-400 flex items-center gap-2">
+                      <Store size={14} />
+                      {storeName}
+                      <span className="text-[9px] text-gray-500 font-bold normal-case ml-2">
+                        {catalogItemsForStore(storeName).filter((m) => assignedStoreByCatalogId[m.id] === storeName).length}{' '}
+                        assigned here
+                      </span>
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {catalogItemsForStore(storeName).map((item) => {
+                        const assignedHere = assignedStoreByCatalogId[item.id] === storeName
+                        return (
+                          <button
+                            key={`${storeName}-${item.id}`}
+                            type="button"
+                            onClick={() => toggleCatalogAssignment(item.id, storeName)}
+                            title={item.description ?? item.name}
+                            className={`${pillBase} ${
+                              assignedHere
+                                ? 'bg-purple-900/35 border-purple-500/70 text-purple-200'
+                                : 'bg-[#0f0f0f] border-gray-800 text-gray-400 hover:border-purple-500/40 hover:text-purple-300'
+                            }`}
+                          >
+                            {item.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {catalogItemsForStore(storeName).length === 0 && (
+                      <p className="text-[10px] text-gray-600 font-bold italic">No available catalog goods for this store.</p>
+                    )}
+                  </div>
+                ))}
+
+                <div className="bg-black border border-gray-800 rounded-2xl p-4 mt-8">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-3">
+                    Create Custom Good
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <input
+                      value={customGoodName}
+                      onChange={(e) => setCustomGoodName(e.target.value)}
+                      placeholder="Name (required)"
+                      className="bg-[#0f0f0f] border border-gray-800 p-3 rounded-xl outline-none focus:border-purple-500 text-sm font-bold lg:col-span-2"
+                    />
+                    <input
+                      value={customReorderPoint}
+                      onChange={(e) => setCustomReorderPoint(e.target.value)}
+                      placeholder="Reorder point"
+                      inputMode="numeric"
+                      className="bg-[#0f0f0f] border border-gray-800 p-3 rounded-xl outline-none focus:border-purple-500 text-sm font-bold"
+                    />
+                    <input
+                      value={customLotQty}
+                      onChange={(e) => setCustomLotQty(e.target.value)}
+                      placeholder="Lot quantity"
+                      inputMode="numeric"
+                      className="bg-[#0f0f0f] border border-gray-800 p-3 rounded-xl outline-none focus:border-purple-500 text-sm font-bold"
+                    />
+                    <select
+                      required
+                      value={customGoodStore}
+                      onChange={(e) => setCustomGoodStore(e.target.value)}
+                      className="bg-[#0f0f0f] border border-gray-800 p-3 rounded-xl outline-none focus:border-purple-500 text-sm font-bold md:col-span-2 lg:col-span-4"
+                    >
+                      <option value="">Store (required)</option>
+                      {storesSorted.map((sn) => (
+                        <option key={sn} value={sn}>
+                          {sn}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <label className="mt-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                    <input
+                      type="checkbox"
+                      checked={customShareGlobal}
+                      onChange={(e) => setCustomShareGlobal(e.target.checked)}
+                      className="accent-purple-500"
+                    />
+                    Share to Global Catalog (materials · is_global)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={addCustomGood}
+                    disabled={!customGoodName.trim() || !customGoodStore}
+                    className={`mt-4 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${
+                      customGoodName.trim() && customGoodStore
+                        ? 'bg-purple-600 hover:bg-purple-500 text-white'
+                        : 'bg-gray-900 border border-gray-800 text-gray-600 cursor-not-allowed'
+                    }`}
+                  >
+                    <Plus size={12} />
+                    Add Custom Good
+                  </button>
+                  {customLines.length > 0 && (
+                    <ul className="mt-4 space-y-1 text-[10px] font-bold text-gray-500 border-t border-gray-800 pt-4">
+                      {customLines.map((l) => (
+                        <li key={l.clientId}>
+                          • {l.name}
+                          {l.storeName ? ` → ${l.storeName}` : ''}
+                          {l.shareGlobal ? ' · will share globally' : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="mt-6 flex items-center justify-between gap-4">
               <button
+                type="button"
                 onClick={() => setStep(1)}
                 className="px-4 py-2 rounded-xl border border-gray-800 text-gray-400 hover:text-white hover:border-gray-600 text-[10px] font-black uppercase tracking-widest"
               >
                 Back
               </button>
               <button
-                disabled={selectedGoods.length === 0}
+                type="button"
+                disabled={catalogLoading || !hasAssignments}
                 onClick={() => setStep(3)}
                 className={`px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all ${
-                  selectedGoods.length === 0
+                  catalogLoading || !hasAssignments
                     ? 'bg-gray-900 border border-gray-800 text-gray-600 cursor-not-allowed'
                     : 'bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-900/20'
                 }`}
@@ -583,25 +705,48 @@ export default function OnboardingPage() {
             </div>
 
             <div className="space-y-2">
-              {selectedGoods.map((good) => (
+              {auditCatalogEntries.map(({ materialId, storeName, item }) => (
                 <div
-                  key={good.id}
+                  key={materialId}
                   className="bg-black border border-gray-800 rounded-xl p-4 flex items-center justify-between gap-4"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-black text-gray-100 truncate">{good.name}</p>
+                    <p className="text-sm font-black text-gray-100 truncate">{item.name}</p>
                     <p className="text-[9px] font-black uppercase tracking-widest text-gray-500 mt-1">
-                      {good.categoryLabel} {good.storeName ? `• ${good.storeName}` : '• Unassigned'}
-                      {good.source === 'custom' && good.shareToGlobal ? ' • Global' : ''}
+                      Catalog clone • {storeName}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <label className="text-[9px] font-black uppercase tracking-widest text-gray-500">Current Quantity</label>
+                    <label className="text-[9px] font-black uppercase tracking-widest text-gray-500">Qty</label>
                     <input
                       type="number"
                       min={0}
-                      value={good.quantity}
-                      onChange={(e) => setQuantity(good.id, e.target.value)}
+                      value={quantities[`catalog:${materialId}`] ?? 0}
+                      onChange={(e) => setQuantityForKey(`catalog:${materialId}`, e.target.value)}
+                      className="w-24 bg-[#0f0f0f] border border-gray-800 rounded-lg p-2 text-right font-black text-sm outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+              ))}
+              {customLines.map((line) => (
+                <div
+                  key={line.clientId}
+                  className="bg-black border border-gray-800 rounded-xl p-4 flex items-center justify-between gap-4"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-black text-gray-100 truncate">{line.name}</p>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-gray-500 mt-1">
+                      Custom • {line.storeName ?? '?'}
+                      {line.shareGlobal ? ' · + global catalog share' : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-gray-500">Qty</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={quantities[`custom:${line.clientId}`] ?? 0}
+                      onChange={(e) => setQuantityForKey(`custom:${line.clientId}`, e.target.value)}
                       className="w-24 bg-[#0f0f0f] border border-gray-800 rounded-lg p-2 text-right font-black text-sm outline-none focus:border-purple-500"
                     />
                   </div>
@@ -611,6 +756,7 @@ export default function OnboardingPage() {
 
             <div className="mt-8 flex items-center justify-between">
               <button
+                type="button"
                 onClick={() => setStep(2)}
                 className="px-4 py-2 rounded-xl border border-gray-800 text-gray-400 hover:text-white hover:border-gray-600 text-[10px] font-black uppercase tracking-widest"
               >
@@ -618,6 +764,7 @@ export default function OnboardingPage() {
               </button>
 
               <button
+                type="button"
                 disabled={saving}
                 onClick={() => void initializeKeep()}
                 className={`px-10 py-4 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center gap-2 transition-all ${
@@ -636,4 +783,3 @@ export default function OnboardingPage() {
     </div>
   )
 }
-
