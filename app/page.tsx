@@ -102,36 +102,52 @@ function DashboardContent() {
     setLowStockCount(Number(metrics?.low_stock_count ?? 0))
     setMrpItemCount(Number(metrics?.mrp_item_count ?? 0))
 
-    const displayCards: StockCard[] = []
+    // Build display cards directly from RPC payload without forEach loops
+    const displayCards: StockCard[] = stockList.map(stock => {
+      const material = materialsList.find(m => String(m.id) === String(stock.material_id))
+      if (!material) return null
+      
+      const unit = unitsList.find(u => String(u.id) === String(material.unit_id)) || unitsList.find(u => u.name === material.unit_id)
+      const unitStr = unit ? unit.name : 'QTY'
+      
+      return {
+        id: `${material.id}-${stock.location_id}`,
+        material_id: material.id,
+        name: material.name,
+        unit: unitStr,
+        reorder_point: material.reorder_point,
+        is_mrp_enabled: material.is_mrp_enabled,
+        location_id: stock.location_id,
+        quantity: stock.quantity ?? 0
+      }
+    }).filter((card): card is StockCard => card !== null)
 
-    materialsList.forEach(mat => {
+    // Add materials without stock as default cards
+    const materialsWithoutStock = materialsList.filter(mat => 
+      !stockList.some(stock => String(stock.material_id) === String(mat.id))
+    )
+    
+    const defaultCards: StockCard[] = materialsWithoutStock.map(mat => {
       const unit = unitsList.find(u => String(u.id) === String(mat.unit_id)) || unitsList.find(u => u.name === mat.unit_id)
       const unitStr = unit ? unit.name : 'QTY'
-      const stocksForMat = stockList.filter(s => String(s.material_id) === String(mat.id))
-
-      if (stocksForMat.length > 0) {
-         stocksForMat.forEach(stock => {
-           const card: StockCard = {
-             id: `${mat.id}-${stock.location_id}`, 
-             material_id: mat.id, name: mat.name, unit: unitStr,
-             reorder_point: mat.reorder_point, is_mrp_enabled: mat.is_mrp_enabled,
-             location_id: stock.location_id, quantity: stock.quantity ?? 0
-           }
-           displayCards.push(card)
-         })
-      } else {
-         const card: StockCard = {
-           id: `${mat.id}-default`, material_id: mat.id, name: mat.name, unit: unitStr,
-           reorder_point: mat.reorder_point, is_mrp_enabled: mat.is_mrp_enabled,
-           location_id: mat.default_location_id, quantity: 0 
-         }
-         displayCards.push(card)
+      
+      return {
+        id: `${mat.id}-default`,
+        material_id: mat.id,
+        name: mat.name,
+        unit: unitStr,
+        reorder_point: mat.reorder_point,
+        is_mrp_enabled: mat.is_mrp_enabled,
+        location_id: mat.default_location_id,
+        quantity: 0
       }
     })
 
+    const allDisplayCards = [...displayCards, ...defaultCards]
+
     // Process locations with items vs ghost locations, plus add default items count
     const processedLocations: LocationGroup[] = locationsList.map((loc) => {
-      const items = displayCards
+      const items = allDisplayCards
         .filter((card) => card.location_id === loc.id)
         .sort((a, b) => a.name.localeCompare(b.name))
       const defaultCount = materialsList.filter(m => m.default_location_id === loc.id).length
@@ -140,7 +156,7 @@ function DashboardContent() {
 
     const active = processedLocations.filter(loc => loc.items.length > 0)
     const ghost = processedLocations.filter(loc => loc.items.length === 0)
-    const newUnassignedItems: StockCard[] = displayCards
+    const newUnassignedItems: StockCard[] = allDisplayCards
       .filter((card) => !card.location_id)
       .sort((a, b) => a.name.localeCompare(b.name))
 
@@ -285,7 +301,7 @@ function DashboardContent() {
 
                       {/* Item Rows */}
                       <div className="flex flex-col">
-                        {group.items.map((item) => <StockRow key={item.id} item={item} />)}
+                        {group.items.map((item: StockCard) => <StockRow key={item.id} item={item} />)}
                         
                         {/* Quick Add Row */}
                         <Link href={`/materials/new?location_id=${group.id}`} className="flex items-center gap-2 py-2.5 px-4 text-[9px] font-black uppercase tracking-widest text-gray-600 hover:text-purple-400 hover:bg-white/[0.04] transition-colors border-t border-gray-800/40">

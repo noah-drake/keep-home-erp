@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../context/OrganizationContext'
 import { Plus, Trash2, Save, Package, Copy, CheckSquare, Square, ArrowDownLeft, ArrowRightLeft, ArrowUpRight } from 'lucide-react'
 import { supabase } from '@/utils/supabase'
+import type { Tables, TablesInsert } from '@/types/database.types'
 
 function TransactionEngine() {
   const router = useRouter()
@@ -15,13 +16,21 @@ function TransactionEngine() {
   const [saving, setSaving] = useState(false)
   const [autoSwitched, setAutoSwitched] = useState(false) // Tracks if the system intervened
   
-  const [materials, setMaterials] = useState<any[]>([])
-  const [locations, setLocations] = useState<any[]>([])
-  const [stockByLoc, setStockByLoc] = useState<any[]>([])
-  const [primaryMaterial, setPrimaryMaterial] = useState<any>(null)
+  const [materials, setMaterials] = useState<Tables<'materials'>[]>([])
+  const [locations, setLocations] = useState<Tables<'locations'>[]>([])
+  const [stockByLoc, setStockByLoc] = useState<Tables<'view_stock_by_location'>[]>([])
+  const [primaryMaterial, setPrimaryMaterial] = useState<Tables<'materials'> | null>(null)
 
   // Transaction State
-  const [lines, setLines] = useState<any[]>([])
+  const [lines, setLines] = useState<{
+    id: number
+    material_id: string
+    location_id: string
+    to_location_id: string
+    quantity: string
+    type: 'INBOUND' | 'OUTBOUND' | 'TRANSFER'
+    notes: string
+  }[]>([])
   const [selectedLines, setSelectedLines] = useState<number[]>([])
 
   useEffect(() => {
@@ -69,7 +78,7 @@ function TransactionEngine() {
         location_id: initLoc, 
         to_location_id: '', 
         quantity: '', 
-        type: initType, 
+        type: initType as 'INBOUND' | 'OUTBOUND' | 'TRANSFER', 
         notes: '' 
       }])
       
@@ -80,14 +89,22 @@ function TransactionEngine() {
 
   // --- LINE MANAGEMENT ---
   const addLine = () => {
-    setLines([...lines, { id: Date.now(), material_id: '', location_id: '', to_location_id: '', quantity: '', type: 'OUTBOUND', notes: '' }])
+    setLines([...lines, { id: Date.now(), material_id: '', location_id: '', to_location_id: '', quantity: '', type: 'OUTBOUND' as const, notes: '' }])
   }
 
-  const updateLine = (id: number, field: string, value: any) => {
+  const updateLine = (id: number, field: string, value: string | number) => {
     setLines(lines.map(l => l.id === id ? { ...l, [field]: value } : l))
   }
 
-  const duplicateLine = (line: any) => {
+  const duplicateLine = (line: {
+    id: number
+    material_id: string
+    location_id: string
+    to_location_id: string
+    quantity: string
+    type: 'INBOUND' | 'OUTBOUND' | 'TRANSFER'
+    notes: string
+  }) => {
     const newLine = { ...line, id: Date.now() + Math.random() }
     const index = lines.findIndex(l => l.id === line.id)
     const newLines = [...lines]
@@ -106,30 +123,30 @@ function TransactionEngine() {
     const itemStock = stockByLoc.filter(s => String(s.material_id) === newMaterialId && s.quantity > 0)
     const totalStock = itemStock.reduce((sum, s) => sum + s.quantity, 0)
     
-    setLines(lines.map(l => {
-      if (l.id === id) {
-        let newType = l.type
-        let newLoc = l.location_id
+      setLines(lines.map(l => {
+        if (l.id === id) {
+          let newType: 'INBOUND' | 'OUTBOUND' | 'TRANSFER' = l.type
+          let newLoc = l.location_id
 
-        if (totalStock <= 0) {
-           newType = 'INBOUND'
-           newLoc = mat.default_location_id || ''
-        } else {
-           newType = 'OUTBOUND'
-           if (itemStock.length === 1) {
-             newLoc = itemStock[0].location_id
-           } else {
-             newLoc = '' 
-           }
+          if (totalStock <= 0) {
+             newType = 'INBOUND'
+             newLoc = mat.default_location_id || ''
+          } else {
+             newType = 'OUTBOUND'
+             if (itemStock.length === 1) {
+               newLoc = itemStock[0].location_id
+             } else {
+               newLoc = '' 
+             }
+          }
+
+          return { ...l, material_id: newMaterialId, type: newType, location_id: newLoc, to_location_id: '' }
         }
-
-        return { ...l, material_id: newMaterialId, type: newType, location_id: newLoc, to_location_id: '' }
-      }
-      return l
-    }))
+        return l
+      }))
   }
 
-  const handleTypeChange = (id: number, newType: string) => {
+  const handleTypeChange = (id: number, newType: 'INBOUND' | 'OUTBOUND' | 'TRANSFER') => {
     setLines(lines.map(l => {
       if (l.id === id) {
         let newLoc = l.location_id
@@ -202,7 +219,7 @@ function TransactionEngine() {
     if (!validateBatch()) return
     
     setSaving(true)
-    const movements: any[] = []
+    const movements: TablesInsert<'inventory_movements'>[] = []
 
     lines.forEach(line => {
       if (!line.material_id || !line.location_id || !line.quantity) return
@@ -321,7 +338,7 @@ function TransactionEngine() {
                   <div className="w-full sm:w-1/2 lg:w-40 shrink-0">
                     <label className={lbl}>Operation</label>
                     <div className="relative">
-                      <select value={line.type} onChange={e => handleTypeChange(line.id, e.target.value)} className={`${inpt} pl-9 ${focusStyle}`}>
+                      <select value={line.type} onChange={e => handleTypeChange(line.id, e.target.value as 'INBOUND' | 'OUTBOUND' | 'TRANSFER')} className={`${inpt} pl-9 ${focusStyle}`}>
                         <option value="OUTBOUND">Issue (-)</option>
                         <option value="INBOUND">Receipt (+)</option>
                         <option value="TRANSFER">Transfer</option>
