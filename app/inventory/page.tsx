@@ -2,7 +2,7 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../context/OrganizationContext'
-import { Plus, Trash2, Save, Package, Copy, CheckSquare, Square, ArrowDownLeft, ArrowRightLeft, ArrowUpRight } from 'lucide-react'
+import { Plus, Trash2, Save, Package, Copy, CheckSquare, Square, ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Barcode } from 'lucide-react'
 import { supabase } from '@/utils/supabase'
 import type { Tables, TablesInsert } from '@/types/database.types'
 
@@ -263,9 +263,15 @@ function TransactionEngine() {
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
       <div className="max-w-[1440px] mx-auto space-y-6">
         
-        <header className="border-b border-gray-800 pb-4">
-          <h1 className="text-3xl font-black uppercase tracking-tighter italic">Ledger Entry</h1>
-          <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mt-1">Batch Goods Movements</p>
+        <header className="border-b border-gray-800 pb-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-black uppercase tracking-tighter italic">Ledger Entry</h1>
+            <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mt-1">Batch Goods Movements</p>
+          </div>
+          <button onClick={() => router.push('/scanner')} className="bg-purple-600 hover:bg-purple-500 border border-purple-500/50 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all group shadow-lg shadow-purple-900/20">
+            <Barcode size={14} className="text-white group-hover:scale-110 transition-transform" />
+            <span className="text-[9px] font-black uppercase tracking-widest text-white">Scan</span>
+          </button>
         </header>
 
         {primaryMaterial && (

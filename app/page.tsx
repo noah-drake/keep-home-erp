@@ -6,7 +6,7 @@ import Link from 'next/link'
 import StarterKits from './components/StarterKits'
 import { 
   MapPin, Package, AlertCircle, Shield, ArrowRightLeft, BookOpen, 
-  Plus, ClipboardCheck, ShoppingCart, History, ArrowDownLeft, ArrowUpRight, TrendingUp
+  Plus, ClipboardCheck, ShoppingCart, History, ArrowDownLeft, ArrowUpRight, TrendingUp, Barcode
 } from 'lucide-react'
 import { supabase } from '@/utils/supabase'
 import type { Tables } from '@/types/database.types'
@@ -247,6 +247,10 @@ function DashboardContent() {
 
             {/* Quick Actions - Compact */}
             <div className="flex items-center gap-2">
+              <button onClick={() => router.push('/scanner')} className="bg-purple-600 hover:bg-purple-500 border border-purple-500/50 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all group shadow-lg shadow-purple-900/20">
+                <Barcode size={14} className="text-white group-hover:scale-110 transition-transform" />
+                <span className="text-[9px] font-black uppercase tracking-widest text-white">Scan</span>
+              </button>
               <button onClick={() => router.push('/inventory')} className="bg-[#0f0f0f] border border-gray-800 hover:border-purple-500 px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all group">
                 <ArrowRightLeft size={14} className="text-purple-500 group-hover:scale-110 transition-transform" />
                 <span className="text-[9px] font-black uppercase tracking-widest text-gray-300">Transact</span>

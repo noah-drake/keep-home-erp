@@ -9,6 +9,13 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'Keep Home ERP',
   description: 'Manage your home inventory',
+  manifest: '/manifest.json',
+  themeColor: '#0a0a0a',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Keep ERP',
+  },
 }
 
 export default function RootLayout({
