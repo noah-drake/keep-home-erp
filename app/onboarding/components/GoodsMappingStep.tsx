@@ -7,7 +7,7 @@ export type GlobalCatalogMaterial = {
   name: string
   description: string | null
   category_id: number | null
-  unit_id: number | null
+  unit_id: string | null
   reorder_point: number | null
   lot_quantity: number | null
   is_mrp_enabled: boolean
