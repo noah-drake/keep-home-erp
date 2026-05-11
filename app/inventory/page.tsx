@@ -120,8 +120,8 @@ function TransactionEngine() {
       return
     }
 
-    const itemStock = stockByLoc.filter(s => String(s.material_id) === newMaterialId && s.quantity > 0)
-    const totalStock = itemStock.reduce((sum, s) => sum + s.quantity, 0)
+    const itemStock = stockByLoc.filter(s => String(s.material_id) === newMaterialId && (s.quantity ?? 0) > 0)
+    const totalStock = itemStock.reduce((sum, s) => sum + (s.quantity ?? 0), 0)
     
       setLines(lines.map(l => {
         if (l.id === id) {
@@ -130,11 +130,11 @@ function TransactionEngine() {
 
           if (totalStock <= 0) {
              newType = 'INBOUND'
-             newLoc = mat.default_location_id || ''
+             newLoc = mat.default_location_id ?? ''
           } else {
              newType = 'OUTBOUND'
              if (itemStock.length === 1) {
-               newLoc = itemStock[0].location_id
+               newLoc = itemStock[0].location_id ?? ''
              } else {
                newLoc = '' 
              }
@@ -153,12 +153,12 @@ function TransactionEngine() {
         const mat = materials.find(m => String(m.id) === l.material_id)
         
         if (mat) {
-          const itemStock = stockByLoc.filter(s => String(s.material_id) === String(mat.id) && s.quantity > 0)
+          const itemStock = stockByLoc.filter(s => String(s.material_id) === String(mat.id) && (s.quantity ?? 0) > 0)
           
           if (newType === 'INBOUND') {
-             newLoc = mat.default_location_id || ''
+             newLoc = mat.default_location_id ?? ''
           } else if ((newType === 'OUTBOUND' || newType === 'TRANSFER') && itemStock.length === 1) {
-             newLoc = itemStock[0].location_id
+             newLoc = itemStock[0].location_id ?? ''
           }
         }
 
@@ -324,7 +324,7 @@ function TransactionEngine() {
           )}
 
           {lines.map((line) => {
-            const activeStock = stockByLoc.filter(s => String(s.material_id) === String(line.material_id) && s.quantity > 0)
+            const activeStock = stockByLoc.filter(s => String(s.material_id) === String(line.material_id) && (s.quantity ?? 0) > 0)
             const isSelected = selectedLines.includes(line.id)
             const focusStyle = getFocusColor(line.type)
 
@@ -370,7 +370,7 @@ function TransactionEngine() {
                     <select required value={line.location_id} onChange={e => updateLine(line.id, 'location_id', e.target.value)} className={`${inpt} ${focusStyle}`}>
                       <option value="">-- Choose --</option>
                       {line.type === 'INBOUND' ? locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>) :
-                       activeStock.map(s => <option key={s.location_id} value={s.location_id}>{locations.find(l=>l.id===s.location_id)?.name} ({s.quantity})</option>)}
+                       activeStock.map(s => <option key={s.location_id} value={s.location_id ?? ''}>{locations.find(l=>l.id===s.location_id)?.name} ({s.quantity ?? 0})</option>)}
                     </select>
                   </div>
 
