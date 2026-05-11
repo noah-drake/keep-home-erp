@@ -82,7 +82,7 @@ function buildClonePayload(
   return {
     name: source.name,
     description: source.description,
-    category: source.category ?? null,
+    category: (source.category as TablesInsert<'materials'>['category']) ?? null,
     category_id: source.category_id,
     unit_id: source.unit_id,
     reorder_point: source.reorder_point,
@@ -327,7 +327,7 @@ export default function OnboardingPage() {
             is_global: true,
             is_active: true,
             category_id: null,
-            category: null,
+            category: null as TablesInsert<'materials'>['category'],
             unit_id: null,
             barcode: null,
             is_mrp_enabled: false,
