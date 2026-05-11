@@ -2,12 +2,14 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 
 import { supabase } from '@/utils/supabase'
 import { useOrganization } from '@/app/context/OrganizationContext'
 import type { Tables, TablesInsert } from '@/types/database.types'
-import BarcodeScanner from '@/app/components/BarcodeScanner'
+
+const BarcodeScanner = dynamic(() => import('@/app/components/BarcodeScanner'), { ssr: false })
 
 type MaterialInsert = TablesInsert<'materials'>
 
