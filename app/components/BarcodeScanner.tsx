@@ -1,122 +1,134 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
-import { Html5QrcodeScanner } from 'html5-qrcode'
+import { useEffect, useRef, useState } from 'react'
 
 interface BarcodeScannerProps {
   onScanSuccess: (decodedText: string) => void
   onScanFailure?: (error: string) => void
-  paused?: boolean
+  paused?: boolean // Ignored by hardware, retained for prop compatibility
 }
 
-export default function BarcodeScanner({ onScanSuccess, onScanFailure, paused = false }: BarcodeScannerProps) {
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null)
-  const scanCountRef = useRef(0)
+export default function BarcodeScanner({ onScanSuccess }: BarcodeScannerProps) {
+  const [status, setStatus] = useState<string>('INITIALIZING HARDWARE...')
+  const [errorMsg, setErrorMsg] = useState<string>('')
+  
+  const scannerRef = useRef<any>(null)
+  const isMounted = useRef(true)
+  const hasScanned = useRef(false)
 
   useEffect(() => {
-    const scanner = new Html5QrcodeScanner(
-      'barcode-scanner',
-      {
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
-        aspectRatio: 1.0,
-      },
-      false
-    )
-    
-    scannerRef.current = scanner
+    isMounted.current = true
+    hasScanned.current = false
 
-    scanner.render(
-      (decodedText: string) => {
-        // Debounce scans to prevent multiple rapid detections
-        scanCountRef.current += 1
-        const currentScan = scanCountRef.current
+    const mountCamera = async () => {
+      try {
+        // 1. Dynamic import to protect the Next.js server from SSR crashes
+        const module = await import('html5-qrcode')
+        if (!isMounted.current) return
+
+        // 2. Use the raw engine, NOT the buggy Html5QrcodeScanner wrapper
+        const Html5Qrcode = module.Html5Qrcode
         
-        setTimeout(() => {
-          if (scanCountRef.current === currentScan) {
-            onScanSuccess(decodedText)
+        // 3. CACHE BUSTER: Brand new HTML ID. Old cached scripts cannot target this.
+        const scanner = new Html5Qrcode('keep-secure-optics-viewport')
+        scannerRef.current = scanner
+
+        setStatus('REQUESTING OPTICS PERMISSION...')
+
+        // 4. Start the raw video engine
+        await scanner.start(
+          { facingMode: 'environment' }, // Force back camera
+          { 
+            fps: 10, 
+            qrbox: { width: 250, height: 250 }, 
+            aspectRatio: 1.0 
+          },
+          (decodedText) => {
+            // Lock the scanner immediately upon successful read
+            if (isMounted.current && !hasScanned.current) {
+              hasScanned.current = true
+              setStatus('BARCODE ACQUIRED! ROUTING...')
+              
+              // 300ms delay so the user can read the success message before the page changes
+              setTimeout(() => {
+                onScanSuccess(decodedText)
+              }, 300)
+            }
+          },
+          (errorMessage) => {
+            // Silently ignore routine frame failures ("no barcode found in frame")
           }
-        }, 500)
-      },
-      (errorMessage: string) => {
-        if (onScanFailure) {
-          onScanFailure(errorMessage)
+        )
+        
+        if (isMounted.current) setStatus('') // Clear status to show the video feed
+
+      } catch (err: any) {
+        if (isMounted.current) {
+          console.error('Camera Hardware Error:', err)
+          setErrorMsg('OPTICS OFFLINE: Please allow camera permissions in your browser settings.')
+          setStatus('')
         }
       }
-    )
-
-    // Custom dark theme styling
-    const styleId = 'barcode-scanner-dark-theme'
-    if (!document.getElementById(styleId)) {
-      const style = document.createElement('style')
-      style.id = styleId
-      style.textContent = `
-        #barcode-scanner {
-          background: #0a0a0a !important;
-          border-radius: 16px;
-          overflow: hidden;
-          border: 1px solid #333;
-        }
-        #barcode-scanner video {
-          object-fit: cover;
-          border-radius: 12px;
-        }
-        #barcode-scanner__scan_region {
-          background: #0a0a0a !important;
-        }
-        #barcode-scanner__dashboard_section_csr span,
-        #barcode-scanner__dashboard_section_swaplink {
-          color: #a855f7 !important;
-        }
-        #barcode-scanner__dashboard {
-          background: #0a0a0a !important;
-          color: #e5e5e5 !important;
-          border-radius: 12px;
-          padding: 16px;
-        }
-        #barcode-scanner__dashboard_section_csr button {
-          background: #7c3aed !important;
-          color: white !important;
-          border-radius: 8px;
-          padding: 8px 16px;
-          font-weight: bold;
-          border: none;
-        }
-        #barcode-scanner__dashboard_section_csr button:hover {
-          background: #8b5cf6 !important;
-        }
-        #barcode-scanner__dashboard_section_swaplink a {
-          color: #a855f7 !important;
-        }
-      `
-      document.head.appendChild(style)
     }
+
+    mountCamera()
 
     return () => {
-      // Proper cleanup to prevent memory leaks
+      isMounted.current = false
       if (scannerRef.current) {
-        scannerRef.current.clear().catch((error) => {
-          console.error('Failed to clear scanner:', error)
-        })
-        scannerRef.current = null
+        try {
+          // Gracefully release the camera hardware
+          scannerRef.current.stop().then(() => {
+            scannerRef.current.clear()
+          }).catch(console.error)
+        } catch (e) {
+          console.error("Hardware cleanup bypassed", e)
+        }
       }
     }
-  }, [])
+  }, [onScanSuccess])
 
-  // Handle pause/resume
-  useEffect(() => {
-    if (scannerRef.current) {
-      if (paused) {
-        scannerRef.current.pause()
-      } else {
-        scannerRef.current.resume()
-      }
-    }
-  }, [paused])
+  // Notice: There is no useEffect here watching the 'paused' prop anymore.
+  // The fatal scannerRef.current.resume() code has been completely eradicated.
 
   return (
-    <div className="w-full max-w-lg mx-auto">
-      <div id="barcode-scanner" className="w-full" />
+    <div className="w-full max-w-lg mx-auto bg-[#050505] rounded-[2rem] overflow-hidden border border-gray-800 shadow-2xl relative">
+      {errorMsg ? (
+        <div className="p-6 text-red-500 text-xs font-bold text-center border border-red-900 bg-red-950/20 m-4 rounded-xl">
+          {errorMsg}
+        </div>
+      ) : (
+        <div className="relative w-full min-h-[350px] bg-[#050505] flex items-center justify-center">
+          
+          {/* The actual video feed container */}
+          <div id="keep-secure-optics-viewport" className="w-full h-full absolute inset-0 [&>video]:object-cover" />
+          
+          {/* Status Overlay */}
+          {status && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/90 backdrop-blur-md">
+              <span className="text-purple-500 text-[10px] font-black uppercase tracking-widest animate-pulse px-6 text-center leading-relaxed">
+                {status}
+              </span>
+            </div>
+          )}
+          
+          {/* Tactical Targeting Reticle (Only shows when camera is live) */}
+          {!status && !errorMsg && (
+            <div className="absolute inset-0 z-10 pointer-events-none flex items-center justify-center">
+              <div className="w-56 h-56 relative">
+                {/* Corner Brackets */}
+                <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-purple-500/80 rounded-tl-xl" />
+                <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-purple-500/80 rounded-tr-xl" />
+                <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-purple-500/80 rounded-bl-xl" />
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-purple-500/80 rounded-br-xl" />
+                
+                {/* Laser Line */}
+                <div className="absolute top-1/2 left-0 w-full h-[2px] bg-red-500/80 shadow-[0_0_12px_rgba(239,68,68,1)] animate-pulse" />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
