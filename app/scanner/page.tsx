@@ -5,33 +5,31 @@ import { useEffect, useRef } from 'react'
 interface BarcodeScannerProps {
   onScanSuccess: (decodedText: string) => void
   onScanFailure?: (error: string) => void
-  paused?: boolean
+  paused?: boolean // Left for interface compatibility, but we are no longer letting it control the hardware
 }
 
-export default function BarcodeScanner({ onScanSuccess, onScanFailure, paused = false }: BarcodeScannerProps) {
+export default function BarcodeScanner({ onScanSuccess, onScanFailure }: BarcodeScannerProps) {
   const scannerRef = useRef<any>(null)
   const scanCountRef = useRef(0)
-  
-  // Iron Gates
   const isMounted = useRef(false)
   const onScanSuccessRef = useRef(onScanSuccess)
-  const onScanFailureRef = useRef(onScanFailure)
 
-  // Keep references fresh without triggering re-renders
+  // Keep success reference fresh for the debounce timeout
   useEffect(() => {
     onScanSuccessRef.current = onScanSuccess
-    onScanFailureRef.current = onScanFailure
-  }, [onScanSuccess, onScanFailure])
+  }, [onScanSuccess])
 
   useEffect(() => {
     if (isMounted.current) return
     isMounted.current = true
 
-    // DYNAMIC IMPORT INSIDE USE-EFFECT: 
+    let scannerInstance: any = null
+
+    // Dynamically import to protect the Next.js server
     import('html5-qrcode').then((module) => {
       const Html5QrcodeScanner = module.Html5QrcodeScanner
 
-      const scanner = new Html5QrcodeScanner(
+      scannerInstance = new Html5QrcodeScanner(
         'barcode-scanner',
         {
           fps: 10,
@@ -42,9 +40,9 @@ export default function BarcodeScanner({ onScanSuccess, onScanFailure, paused = 
         false // Verbose logging disabled
       )
       
-      scannerRef.current = scanner
+      scannerRef.current = scannerInstance
 
-      scanner.render(
+      scannerInstance.render(
         (decodedText: string) => {
           scanCountRef.current += 1
           const currentScan = scanCountRef.current
@@ -56,9 +54,8 @@ export default function BarcodeScanner({ onScanSuccess, onScanFailure, paused = 
           }, 500)
         },
         (errorMessage: string) => {
-          if (onScanFailureRef.current) {
-            onScanFailureRef.current(errorMessage)
-          }
+          // We ignore routine scan failures (like "No barcode found in frame")
+          if (onScanFailure) onScanFailure(errorMessage)
         }
       )
 
@@ -84,33 +81,19 @@ export default function BarcodeScanner({ onScanSuccess, onScanFailure, paused = 
     })
 
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch((error: any) => console.error('Failed to clear scanner:', error))
-        scannerRef.current = null
+      // Gracefully clear the hardware when navigating away
+      if (scannerInstance) {
+        scannerInstance.clear().catch((error: any) => console.error('Failed to clear scanner:', error))
       }
       isMounted.current = false
     }
   }, [])
 
-  // THE FIX: Safely catch the hardware state mismatch
-  useEffect(() => {
-    if (!scannerRef.current) return
-
-    try {
-      if (paused) {
-        scannerRef.current.pause(true)
-      } else {
-        scannerRef.current.resume()
-      }
-    } catch (err) {
-      // If the camera says "I'm already running, I can't resume!", we safely ignore it.
-      console.warn("Safely caught scanner state mismatch:", err)
-    }
-  }, [paused])
+  // NOTE: The broken pause/resume useEffect has been completely eradicated.
 
   return (
     <div className="w-full max-w-lg mx-auto bg-black rounded-2xl overflow-hidden border border-gray-800 p-2 shadow-2xl">
-      <div id="barcode-scanner" className="w-full" />
+      <div id="barcode-scanner" className="w-full min-h-[300px] flex items-center justify-center text-gray-500 text-xs font-bold uppercase tracking-widest" />
     </div>
   )
 }
