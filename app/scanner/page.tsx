@@ -1,99 +1,91 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface BarcodeScannerProps {
   onScanSuccess: (decodedText: string) => void
   onScanFailure?: (error: string) => void
-  paused?: boolean // Left for interface compatibility, but we are no longer letting it control the hardware
+  paused?: boolean // Ignored: We handle debouncing purely in React now
 }
 
-export default function BarcodeScanner({ onScanSuccess, onScanFailure }: BarcodeScannerProps) {
-  const scannerRef = useRef<any>(null)
-  const scanCountRef = useRef(0)
-  const isMounted = useRef(false)
-  const onScanSuccessRef = useRef(onScanSuccess)
+export default function BarcodeScanner({ onScanSuccess }: BarcodeScannerProps) {
+  const [errorMsg, setErrorMsg] = useState<string>('')
+  const isMounted = useRef(true)
+  
+  // Hard-lock to prevent multiple database calls without needing hardware-level pausing
+  const hasScanned = useRef(false) 
+  const successCallbackRef = useRef(onScanSuccess)
 
-  // Keep success reference fresh for the debounce timeout
   useEffect(() => {
-    onScanSuccessRef.current = onScanSuccess
+    successCallbackRef.current = onScanSuccess
   }, [onScanSuccess])
 
   useEffect(() => {
-    if (isMounted.current) return
     isMounted.current = true
+    let html5QrCode: any = null
 
-    let scannerInstance: any = null
-
-    // Dynamically import to protect the Next.js server
     import('html5-qrcode').then((module) => {
-      const Html5QrcodeScanner = module.Html5QrcodeScanner
+      if (!isMounted.current) return
+      
+      // Use the RAW engine, not the buggy UI wrapper
+      const Html5Qrcode = module.Html5Qrcode
+      html5QrCode = new Html5Qrcode('raw-video-reader')
 
-      scannerInstance = new Html5QrcodeScanner(
-        'barcode-scanner',
+      html5QrCode.start(
+        { facingMode: 'environment' }, // Force the back camera
         {
           fps: 10,
           qrbox: { width: 250, height: 250 },
-          aspectRatio: 1.0,
-          showTorchButtonIfSupported: true,
+          aspectRatio: 1.0
         },
-        false // Verbose logging disabled
-      )
-      
-      scannerRef.current = scannerInstance
-
-      scannerInstance.render(
         (decodedText: string) => {
-          scanCountRef.current += 1
-          const currentScan = scanCountRef.current
-          
-          setTimeout(() => {
-            if (scanCountRef.current === currentScan) {
-              onScanSuccessRef.current(decodedText)
-            }
-          }, 500)
+          // If we haven't scanned yet, lock it and fire the success route
+          if (isMounted.current && !hasScanned.current) {
+            hasScanned.current = true 
+            successCallbackRef.current(decodedText)
+          }
         },
         (errorMessage: string) => {
-          // We ignore routine scan failures (like "No barcode found in frame")
-          if (onScanFailure) onScanFailure(errorMessage)
+          // Ignore routine frame errors (like "No barcode found in this frame")
         }
-      )
-
-      // Inject custom dark theme
-      const styleId = 'barcode-scanner-dark-theme'
-      if (!document.getElementById(styleId)) {
-        const style = document.createElement('style')
-        style.id = styleId
-        style.textContent = `
-          #barcode-scanner { background: #0a0a0a !important; border-radius: 16px; overflow: hidden; border: 1px solid #333; }
-          #barcode-scanner video { object-fit: cover; border-radius: 12px; }
-          #barcode-scanner__scan_region { background: #0a0a0a !important; }
-          #barcode-scanner__dashboard_section_csr span, #barcode-scanner__dashboard_section_swaplink { color: #a855f7 !important; }
-          #barcode-scanner__dashboard { background: #0a0a0a !important; color: #e5e5e5 !important; border-radius: 12px; padding: 16px; }
-          #barcode-scanner__dashboard_section_csr button { background: #7c3aed !important; color: white !important; border-radius: 8px; padding: 8px 16px; font-weight: bold; border: none; margin-top: 10px; }
-          #barcode-scanner__dashboard_section_csr button:hover { background: #8b5cf6 !important; }
-          #barcode-scanner__dashboard_section_swaplink a { color: #a855f7 !important; }
-        `
-        document.head.appendChild(style)
-      }
+      ).catch((err: any) => {
+        if (isMounted.current) {
+          setErrorMsg('Camera access denied or unavailable. Please check permissions.')
+          console.error("Camera Start Error:", err)
+        }
+      })
     }).catch(err => {
-      console.error("Failed to load html5-qrcode module", err)
+      if (isMounted.current) setErrorMsg('Failed to load the camera engine.')
     })
 
     return () => {
-      // Gracefully clear the hardware when navigating away
-      if (scannerInstance) {
-        scannerInstance.clear().catch((error: any) => console.error('Failed to clear scanner:', error))
-      }
       isMounted.current = false
+      if (html5QrCode) {
+        try {
+          if (html5QrCode.isScanning) {
+            html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error)
+          }
+        } catch (e) {
+          console.error("Hardware cleanup bypassed", e)
+        }
+      }
     }
   }, [])
 
-  // NOTE: The broken pause/resume useEffect has been completely eradicated.
-
   return (
-    <div className="w-full max-w-lg mx-auto bg-black rounded-2xl overflow-hidden border border-gray-800 p-2 shadow-2xl">
-      <div id="barcode-scanner" className="w-full min-h-[300px] flex items-center justify-center text-gray-500 text-xs font-bold uppercase tracking-widest" />
+    <div className="w-full max-w-lg mx-auto bg-black rounded-2xl overflow-hidden border border-gray-800 shadow-2xl relative">
+      {errorMsg ? (
+        <div className="p-6 text-red-500 text-xs font-bold text-center border border-red-900 bg-red-950/20 m-2 rounded-xl">
+          {errorMsg}
+        </div>
+      ) : (
+        <div id="raw-video-reader" className="w-full min-h-[300px] bg-black flex items-center justify-center">
+           {/* This text shows only until the camera feed overwrites it */}
+           <span className="text-gray-600 text-[10px] font-black uppercase tracking-widest animate-pulse">
+             Mounting Camera Hardware...
+           </span>
+        </div>
+      )}
     </div>
   )
 }
