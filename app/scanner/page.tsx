@@ -14,6 +14,16 @@ export default function BarcodeScanner({ onScanSuccess, onScanFailure, paused = 
   const isMounted = useRef(false)
   const [scriptLoaded, setScriptLoaded] = useState(false)
 
+  // IRON GATE PART 2: Store callbacks in mutable refs. 
+  // This prevents the camera from infinitely rebooting every time the parent component re-renders.
+  const onScanSuccessRef = useRef(onScanSuccess)
+  const onScanFailureRef = useRef(onScanFailure)
+
+  useEffect(() => {
+    onScanSuccessRef.current = onScanSuccess
+    onScanFailureRef.current = onScanFailure
+  }, [onScanSuccess, onScanFailure])
+
   // Dynamically load the external script to prevent build resolution errors
   useEffect(() => {
     if (typeof window !== 'undefined' && !(window as any).Html5QrcodeScanner) {
@@ -28,7 +38,7 @@ export default function BarcodeScanner({ onScanSuccess, onScanFailure, paused = 
   }, [])
 
   useEffect(() => {
-    // IRON GATE: Prevents React Strict Mode from double-mounting the camera
+    // IRON GATE PART 1: Prevents React Strict Mode from double-mounting the camera
     if (!scriptLoaded || isMounted.current) return
     isMounted.current = true
 
@@ -57,13 +67,15 @@ export default function BarcodeScanner({ onScanSuccess, onScanFailure, paused = 
         
         setTimeout(() => {
           if (scanCountRef.current === currentScan) {
-            onScanSuccess(decodedText)
+            // Call the ref instead of the prop directly
+            onScanSuccessRef.current(decodedText)
           }
         }, 500)
       },
       (errorMessage: string) => {
-        if (onScanFailure) {
-          onScanFailure(errorMessage)
+        if (onScanFailureRef.current) {
+          // Call the ref instead of the prop directly
+          onScanFailureRef.current(errorMessage)
         }
       }
     )
@@ -126,7 +138,7 @@ export default function BarcodeScanner({ onScanSuccess, onScanFailure, paused = 
       }
       isMounted.current = false
     }
-  }, [onScanFailure, onScanSuccess, scriptLoaded])
+  }, [scriptLoaded]) // <-- DEPENDENCY ARRAY FIXED: Callbacks removed to prevent crash loops
 
   // Handle Play/Pause state driven by the parent component
   useEffect(() => {
