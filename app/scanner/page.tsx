@@ -1,181 +1,148 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import dynamic from 'next/dynamic'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 
-import { supabase } from '@/utils/supabase'
-import { useOrganization } from '@/app/context/OrganizationContext'
-import type { Tables, TablesInsert } from '@/types/database.types'
+interface BarcodeScannerProps {
+  onScanSuccess: (decodedText: string) => void
+  onScanFailure?: (error: string) => void
+  paused?: boolean
+}
 
-const BarcodeScanner = dynamic(() => import('@/app/components/BarcodeScanner'), { ssr: false })
+export default function BarcodeScanner({ onScanSuccess, onScanFailure, paused = false }: BarcodeScannerProps) {
+  const scannerRef = useRef<any>(null)
+  const scanCountRef = useRef(0)
+  const isMounted = useRef(false)
+  const [scriptLoaded, setScriptLoaded] = useState(false)
 
-type MaterialInsert = TablesInsert<'materials'>
-
-export default function ScannerPage() {
-  const router = useRouter()
-  const { organization } = useOrganization()
-  const [paused, setPaused] = useState(false)
-  const [processing, setProcessing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const handleScanSuccess = async (decodedText: string) => {
-    if (!organization?.id || processing) return
-
-    setPaused(true)
-    setProcessing(true)
-    setError(null)
-
-    try {
-      // Step 1: Check if material exists in local organization
-      const { data: localMaterial, error: localError } = await supabase
-        .from('materials')
-        .select('id')
-        .eq('barcode', decodedText)
-        .eq('organization_id', organization.id)
-        .single()
-
-      if (localMaterial) {
-        // Found in local organization - route to inventory
-        router.push(`/inventory?material_id=${localMaterial.id}`)
-        return
-      }
-
-      // Step 2: Check if material exists in global catalog
-      const { data: globalMaterial, error: globalError } = await supabase
-        .from('materials')
-        .select('*')
-        .eq('barcode', decodedText)
-        .eq('is_global', true)
-        .single()
-
-      if (globalMaterial) {
-        // Found in global catalog - clone to local organization
-        const clonePayload: MaterialInsert = {
-          name: globalMaterial.name,
-          description: globalMaterial.description,
-          category_id: globalMaterial.category_id,
-          unit_id: globalMaterial.unit_id,
-          reorder_point: globalMaterial.reorder_point,
-          lot_quantity: globalMaterial.lot_quantity,
-          is_mrp_enabled: globalMaterial.is_mrp_enabled,
-          barcode: globalMaterial.barcode,
-          default_location_id: null,
-          organization_id: organization.id,
-          is_global: false,
-          is_active: true,
-        }
-
-        const { data: newMaterial, error: insertError } = await supabase
-          .from('materials')
-          .insert(clonePayload)
-          .select()
-          .single()
-
-        if (insertError) throw insertError
-
-        // Route to inventory with the newly cloned material
-        router.push(`/inventory?material_id=${newMaterial.id}`)
-        return
-      }
-
-      // Step 3: No match found - route to new material creation with barcode pre-filled
-      router.push(`/materials/new?barcode=${decodedText}`)
-    } catch (err) {
-      console.error('Error processing barcode scan:', err)
-      setError(err instanceof Error ? err.message : 'Failed to process barcode')
-      setPaused(false)
-    } finally {
-      setProcessing(false)
+  // Dynamically load the external script to prevent build resolution errors
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !(window as any).Html5QrcodeScanner) {
+      const script = document.createElement('script')
+      script.src = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js'
+      script.async = true
+      script.onload = () => setScriptLoaded(true)
+      document.body.appendChild(script)
+    } else {
+      setScriptLoaded(true)
     }
-  }
+  }, [])
 
-  const handleBack = () => {
-    router.back()
-  }
+  useEffect(() => {
+    // IRON GATE: Prevents React Strict Mode from double-mounting the camera
+    if (!scriptLoaded || isMounted.current) return
+    isMounted.current = true
+
+    const Html5QrcodeScanner = (window as any).Html5QrcodeScanner
+
+    if (!Html5QrcodeScanner) return
+
+    const scanner = new Html5QrcodeScanner(
+      'barcode-scanner',
+      {
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        aspectRatio: 1.0,
+        showTorchButtonIfSupported: true,
+      },
+      false // Verbose logging disabled
+    )
+    
+    scannerRef.current = scanner
+
+    scanner.render(
+      (decodedText: string) => {
+        // Debounce scans to prevent rapid-fire database calls
+        scanCountRef.current += 1
+        const currentScan = scanCountRef.current
+        
+        setTimeout(() => {
+          if (scanCountRef.current === currentScan) {
+            onScanSuccess(decodedText)
+          }
+        }, 500)
+      },
+      (errorMessage: string) => {
+        if (onScanFailure) {
+          onScanFailure(errorMessage)
+        }
+      }
+    )
+
+    // Custom dark theme styling for the injected HTML elements
+    const styleId = 'barcode-scanner-dark-theme'
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style')
+      style.id = styleId
+      style.textContent = `
+        #barcode-scanner {
+          background: #0a0a0a !important;
+          border-radius: 16px;
+          overflow: hidden;
+          border: 1px solid #333;
+        }
+        #barcode-scanner video {
+          object-fit: cover;
+          border-radius: 12px;
+        }
+        #barcode-scanner__scan_region {
+          background: #0a0a0a !important;
+        }
+        #barcode-scanner__dashboard_section_csr span,
+        #barcode-scanner__dashboard_section_swaplink {
+          color: #a855f7 !important;
+        }
+        #barcode-scanner__dashboard {
+          background: #0a0a0a !important;
+          color: #e5e5e5 !important;
+          border-radius: 12px;
+          padding: 16px;
+        }
+        #barcode-scanner__dashboard_section_csr button {
+          background: #7c3aed !important;
+          color: white !important;
+          border-radius: 8px;
+          padding: 8px 16px;
+          font-weight: bold;
+          border: none;
+          margin-top: 10px;
+        }
+        #barcode-scanner__dashboard_section_csr button:hover {
+          background: #8b5cf6 !important;
+        }
+        #barcode-scanner__dashboard_section_swaplink a {
+          color: #a855f7 !important;
+        }
+      `
+      document.head.appendChild(style)
+    }
+
+    return () => {
+      // Proper cleanup to release the camera hardware
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch((error: any) => {
+          console.error('Failed to clear scanner:', error)
+        })
+        scannerRef.current = null
+      }
+      isMounted.current = false
+    }
+  }, [onScanFailure, onScanSuccess, scriptLoaded])
+
+  // Handle Play/Pause state driven by the parent component
+  useEffect(() => {
+    if (scannerRef.current) {
+      if (paused) {
+        scannerRef.current.pause(true) // true = also freeze the video feed
+      } else {
+        scannerRef.current.resume()
+      }
+    }
+  }, [paused])
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-gray-100">
-      <div className="max-w-4xl mx-auto p-4 md:p-8">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <button
-            onClick={handleBack}
-            className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
-          >
-            <ArrowLeft size={20} />
-            <span className="font-bold text-sm uppercase tracking-widest">Back</span>
-          </button>
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${paused || processing ? 'bg-yellow-500' : 'bg-green-500'}`} />
-            <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
-              {paused || processing ? 'Paused' : 'Scanning'}
-            </span>
-          </div>
-        </div>
-
-        {/* Scanner */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-black uppercase tracking-tight text-gray-100 mb-2">
-            Scan Barcode
-          </h1>
-          <p className="text-sm text-gray-500 font-bold mb-6">
-            Point your camera at a barcode to locate or create inventory items
-          </p>
-
-          <BarcodeScanner onScanSuccess={handleScanSuccess} paused={paused} />
-        </div>
-
-        {/* Error Message */}
-        {error && (
-          <div className="p-4 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center gap-3 border bg-red-950/20 border-red-900/50 text-red-400 mb-6">
-            <span>Error: {error}</span>
-            <button
-              onClick={() => {
-                setError(null)
-                setPaused(false)
-              }}
-              className="ml-auto text-white hover:text-red-300"
-            >
-              Try Again
-            </button>
-          </div>
-        )}
-
-        {/* Processing Indicator */}
-        {processing && (
-          <div className="p-4 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center gap-3 border bg-purple-950/20 border-purple-900/50 text-purple-400">
-            <Loader2 size={16} className="animate-spin" />
-            <span>Processing barcode...</span>
-          </div>
-        )}
-
-        {/* Instructions */}
-        <div className="mt-8 p-6 bg-black border border-gray-800 rounded-2xl">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-3">
-            How It Works
-          </h3>
-          <ul className="space-y-2 text-[10px] font-bold text-gray-400">
-            <li className="flex items-start gap-2">
-              <span className="text-purple-500">1.</span>
-              <span>Scan a barcode to search your local inventory</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-purple-500">2.</span>
-              <span>If not found locally, we search the global catalog</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-purple-500">3.</span>
-              <span>If found globally, we clone it to your organization</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-purple-500">4.</span>
-              <span>If no match exists, we create a new item with that barcode</span>
-            </li>
-          </ul>
-        </div>
-      </div>
+    <div className="w-full max-w-lg mx-auto bg-black rounded-2xl overflow-hidden border border-gray-800 p-2 shadow-2xl">
+      {/* html5-qrcode forces itself into this exact ID */}
+      <div id="barcode-scanner" className="w-full" />
     </div>
   )
 }
