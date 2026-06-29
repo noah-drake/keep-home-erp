@@ -23,7 +23,7 @@ import type { Tables, TablesInsert } from '@/types/database.types'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-function rowToDraft(row: CatalogItemRow): CatalogDraft {
+function rowToDraft(row: Tables<'catalog_items'>): CatalogDraft {
   return {
     barcode: row.barcode ?? '',
     name: row.name,
@@ -52,7 +52,7 @@ async function readGlobalCatalog(barcode: string): Promise<CatalogDraft | null> 
       .eq('visibility', 'global')
       .limit(1)
     if (error || !data?.length) return null
-    return rowToDraft(data[0] as CatalogItemRow)
+    return rowToDraft(data[0])
   } catch {
     return null // table not migrated yet, etc. — fall through to the provider
   }
@@ -71,13 +71,14 @@ async function cacheGlobalCatalog(draft: CatalogDraft): Promise<void> {
       .limit(1)
     if (existing.data?.length) return // already cached (also guarded by the partial unique index)
 
-    const row: CatalogItemInsert = {
+    const row: TablesInsert<'catalog_items'> = {
       name: draft.name,
       description: draft.description ?? null,
       barcode: draft.barcode,
       visibility: 'global',
       owner_org_id: null,
-      nutrition: draft.nutrition ?? null,
+      // nutrition column is jsonb (typed as Json); our NutritionFacts shape is valid JSON.
+      nutrition: (draft.nutrition ?? null) as TablesInsert<'catalog_items'>['nutrition'],
       source: draft.source,
       source_url: draft.sourceUrl ?? null,
       license: draft.license,
