@@ -1,6 +1,6 @@
 import { getProductLookup, type CatalogDraft, type NutritionFacts } from '@/lib/integrations/product-lookup'
 import { getServiceClient } from '@/utils/supabase-server'
-import type { CatalogItemRow, CatalogItemInsert } from '@/types/catalog.types'
+import type { Tables, TablesInsert } from '@/types/database.types'
 
 /**
  * GET /api/catalog/lookup?barcode=XXXX
