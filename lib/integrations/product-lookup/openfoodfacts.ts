@@ -1,4 +1,5 @@
 import type { CatalogDraftInput, ProductLookupProvider } from './types'
+import { normalizeProductCasing } from './normalize'
 
 /**
  * Open Food Facts adapter (primary product source).
@@ -43,10 +44,12 @@ export function mapOpenFoodFactsProduct(
   if (!body || body.status !== 1 || !body.product) return null
 
   const product = body.product
-  const name = (product.product_name ?? '').trim()
-  if (!name) return null
+  const rawName = (product.product_name ?? '').trim()
+  if (!rawName) return null
 
-  const brand = product.brands?.split(',')[0]?.trim() || null
+  const name = normalizeProductCasing(rawName)
+  const rawBrand = product.brands?.split(',')[0]?.trim() || null
+  const brand = rawBrand ? normalizeProductCasing(rawBrand) : null
   const quantity = product.quantity?.trim() || null
   const description = [brand, quantity].filter(Boolean).join(' · ') || null
   const nutriments = product.nutriments ?? {}

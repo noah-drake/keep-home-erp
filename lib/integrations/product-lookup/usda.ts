@@ -1,4 +1,5 @@
 import type { CatalogDraftInput, ProductLookupProvider } from './types'
+import { normalizeProductCasing } from './normalize'
 
 /**
  * USDA FoodData Central (Branded Foods) adapter — fallback / nutrition enrichment.
@@ -29,10 +30,12 @@ const num = (v: unknown): number | null =>
  * confirmed `food.gtinUpc === barcode`. Returns null if there's no usable description.
  */
 export function mapUsdaFood(food: FdcSearchFood, barcode: string): CatalogDraftInput | null {
-  const name = (food.description ?? '').trim()
-  if (!name) return null
+  const rawName = (food.description ?? '').trim()
+  if (!rawName) return null
 
-  const brand = food.brandName?.trim() || food.brandOwner?.trim() || null
+  const name = normalizeProductCasing(rawName)
+  const rawBrand = food.brandName?.trim() || food.brandOwner?.trim() || null
+  const brand = rawBrand ? normalizeProductCasing(rawBrand) : null
   const byNumber = (n: string) =>
     num(food.foodNutrients?.find((x) => x.nutrientNumber === n)?.value)
 

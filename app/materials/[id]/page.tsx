@@ -2,7 +2,7 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../../context/OrganizationContext'
-import { ArrowLeft, Save, Trash2, Package, MapPin, Target, AlertTriangle, ArrowRightLeft, Edit2, X, ToggleLeft, ToggleRight, History, ArrowDownLeft, ArrowUpRight, Settings2, Check } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, Package, MapPin, Target, AlertTriangle, ArrowRightLeft, Edit2, X, ToggleLeft, ToggleRight, History, ArrowDownLeft, ArrowUpRight, Settings2, Check, Globe } from 'lucide-react'
 import { supabase } from '@/utils/supabase'
 import type { Tables } from '@/types/database.types'
 
@@ -190,6 +190,25 @@ function ItemMasterContent() {
     else router.push('/materials')
   }
 
+  // Promote this org's PRIVATE catalog identity into the shared global catalog (server-side, via
+  // the privileged route — RLS blocks the browser from writing global rows directly).
+  const handlePromote = async () => {
+    if (!catalogItemId) return
+    if (!confirm(`Share "${name}" to the global catalog so other Keeps can adopt it? Its identity (name, category, etc.) becomes shared and read-only for you — your stock and reorder settings stay yours.`)) return
+    setSaving(true)
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/catalog/promote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+      body: JSON.stringify({ catalogItemId }),
+    })
+    const json = await res.json().catch(() => ({}))
+    setSaving(false)
+    if (!res.ok) { alert(json.error || 'Could not share to the global catalog.'); return }
+    alert('Shared to the global catalog — other Keeps can now adopt it.')
+    window.location.reload()
+  }
+
   const displayCategory = categories.find(c => String(c.id) === categoryId)?.name || 'Uncategorized'
   const displayUnit = units.find(u => u.id === unitId)?.name || 'No Unit Set'
   const displayLocation = locations.find(l => l.id === locationId)?.name || 'No Default Store'
@@ -214,6 +233,7 @@ function ItemMasterContent() {
           <div className="flex gap-3">
              <button onClick={() => router.push(`/inventory?material_id=${itemId}`)} className="flex items-center gap-2 bg-[#0f0f0f] border border-gray-800 hover:border-purple-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-purple-400"><ArrowRightLeft size={14} /> Transact</button>
              {isAdmin && !isEditing && <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 bg-gray-900 border border-gray-800 hover:bg-gray-800 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-white"><Edit2 size={14} /> Edit Details</button>}
+             {isAdmin && identityEditable && !isEditing && <button onClick={handlePromote} disabled={saving} className="flex items-center gap-2 bg-[#0f0f0f] border border-blue-900/50 hover:border-blue-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-blue-400 disabled:opacity-50" title="Share this private item to the global catalog"><Globe size={14} /> {saving ? 'Sharing...' : 'Share to Global'}</button>}
              {isEditing && (
                <>
                  <button onClick={() => { setIsEditing(false); router.replace(`/materials/${itemId}`) }} className="flex items-center gap-2 bg-gray-900 border border-gray-800 hover:text-red-400 px-4 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all text-gray-400"><X size={14} /> Cancel</button>
