@@ -14,7 +14,9 @@ The old `materials` table (which mixed *product identity* with *per-Keep policy*
 - **Service-role key** set in `.env.local` (rotate done; old leaked key revoked). Still must be set in **Vercel** for the eventual deploy.
 - **Types regenerated** (`supabase gen types`) — `database.types.ts` now includes the new tables.
 - **Global catalog auto-populate** live: scanning an unknown barcode looks it up (Open Food Facts → USDA) and caches it as a `global` catalog item via the server route `app/api/catalog/lookup`.
-- **Phase 2 app refactor** committed on branch **`phase2-catalog-app`** (NOT merged/deployed). New `lib/catalog.ts` helper + `/materials/adopt` screen; all create/edit/read paths moved off `materials`. Verified green (tsc, 44 tests, build).
+- **Phase 2 app refactor** committed on branch **`phase2-catalog-app`** (NOT merged/deployed). New `lib/catalog.ts` helper + `/materials/adopt` screen; all create/edit/read paths moved off `materials`. Verified green (tsc, build).
+- **Promote-to-global** (on the branch): server route `app/api/catalog/promote/route.ts` (RLS-authorized, service-role write, dedupe-by-barcode, repoint org_materials, drop private row) + "Share to Global" button on the item detail page. This is the safe replacement for the removed client-side "share" checkbox.
+- **Open-data casing** (on the branch): `lib/integrations/product-lookup/normalize.ts` Title-cases all-lower/ALL-CAPS OFF/USDA names while leaving mixed-case brands alone; applied in both adapters. 49 tests pass. NOTE: only affects items fetched GOING FORWARD — existing rows need a one-time `UPDATE catalog_items SET name = initcap(name) WHERE source IN ('openfoodfacts','usda') AND (name = lower(name) OR name = upper(name));`.
 
 ### Not done yet ⏳ — the cutover (do these together, lockstep)
 1. Set the new service-role key in **Vercel** (Production).
@@ -26,7 +28,6 @@ The old `materials` table (which mixed *product identity* with *per-Keep policy*
 > Why lockstep: the app's write target (`org_materials`) and the views' read source must switch at the same moment, or newly-created items won't appear until both sides match.
 
 ## Open ideas / roadmap
-- **"Promote a custom item to global"** — a *server-side* action (validated + deduped, runs with the service key) so users can share their private items to the global catalog safely. Replaces the old client-side "share to global" checkbox that RLS (correctly) forbids.
 - Receipt OCR → bulk receiving; MyFitnessPal consumption sync; recipe generator. See `docs/integrations/roadmap.md`.
 - Pre-existing cleanups: PWA icon 404s; lint debt (`react-hooks/set-state-in-effect`, stray `any`); `units.abbreviation` is referenced in the UI but that column doesn't exist in the DB.
 
