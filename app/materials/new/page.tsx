@@ -1,5 +1,5 @@
 'use client'
-import { useState, Suspense, useEffect } from 'react'
+import { useState, Suspense, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../../context/OrganizationContext'
 import { ArrowLeft, Box, Save, Search, Check, X, CheckCircle2, Package, List, Copy, Settings2, ToggleLeft, ToggleRight } from 'lucide-react'
@@ -39,6 +39,38 @@ function NewMaterialContent() {
   const [newUnitName, setNewUnitName] = useState('')
   const [isCreatingLoc, setIsCreatingLoc] = useState(false)
   const [newLocName, setNewLocName] = useState('')
+
+  // Open Food Facts auto-fill (when arriving from the scanner with a barcode).
+  const [lookupStatus, setLookupStatus] = useState<'idle' | 'loading' | 'found' | 'none'>('idle')
+  const [lookupSource, setLookupSource] = useState<string | null>(null)
+  const lookupRan = useRef(false)
+
+  // Look the scanned barcode up in the open product DB and prefill identity fields the user
+  // hasn't touched. Runs once; never clobbers user input. The user still confirms + sets their
+  // own per-Keep policy (location, reorder point) before saving.
+  useEffect(() => {
+    const initialBarcode = searchParams.get('barcode')?.trim()
+    if (!initialBarcode || lookupRan.current) return
+    lookupRan.current = true
+
+    const run = async () => {
+      setLookupStatus('loading')
+      try {
+        const res = await fetch(`/api/catalog/lookup?barcode=${encodeURIComponent(initialBarcode)}`)
+        if (!res.ok) { setLookupStatus('none'); return }
+        const { draft } = await res.json()
+        if (!draft) { setLookupStatus('none'); return }
+        // Only fill blanks so we never overwrite what the user typed while we were fetching.
+        setName((prev) => prev || draft.name || '')
+        setDescription((prev) => prev || draft.description || '')
+        setLookupSource(draft.source === 'usda' ? 'USDA FoodData Central (CC0)' : 'Open Food Facts (ODbL)')
+        setLookupStatus('found')
+      } catch {
+        setLookupStatus('none')
+      }
+    }
+    run()
+  }, [searchParams])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -239,6 +271,15 @@ function NewMaterialContent() {
               <div className="md:col-span-2">
                 <label className={lbl}>Barcode {barcode && <span className="text-purple-500">(scanned)</span>}</label>
                 <input placeholder="Scan or type a barcode..." value={barcode} onChange={e => setBarcode(e.target.value)} className={`${inpt} font-mono`} />
+                {lookupStatus === 'loading' && (
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-gray-500 mt-2 animate-pulse">Looking up product…</p>
+                )}
+                {lookupStatus === 'found' && lookupSource && (
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-green-500 mt-2">Auto-filled · Data from {lookupSource}</p>
+                )}
+                {lookupStatus === 'none' && (
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-gray-500 mt-2">Not found in open catalog — enter details manually.</p>
+                )}
               </div>
               
               {/* CATEGORY FIELD */}
