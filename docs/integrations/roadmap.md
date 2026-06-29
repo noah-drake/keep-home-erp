@@ -61,12 +61,23 @@ OCR be swapped later without touching callers.
 
 ## Roadmap
 
-### Phase 0 — Server foundation (prerequisite)
-- Apply the two migrations (split + `nutrition`), regenerate `types/database.types.ts`.
-- Add `utils/supabase-server.ts` with `SUPABASE_SERVICE_ROLE_KEY` (server-only).
-- Complete the lookup route: after returning the draft, **upsert it as a global `catalog_items`
-  row via service-role** so each barcode is fetched once across all orgs (the
-  `catalog_items_global_barcode_uidx` handles dedupe).
+### Phase 0 — Server foundation (prerequisite) — app side ✅, DB side pending
+App side is built and ships **dormant** (no-op until you complete the DB steps):
+- ✅ `utils/supabase-server.ts` — service-role client, server-only, returns null until
+  `SUPABASE_SERVICE_ROLE_KEY` is set.
+- ✅ `types/catalog.types.ts` — hand-written `catalog_items`/`org_materials` types (delete after
+  `supabase gen types` is re-run).
+- ✅ Lookup route does **read-through + write-through** global catalog caching: serves a cached
+  global row if present, else hits the provider and caches the result as a global `catalog_items`
+  row (dedupe via `catalog_items_global_barcode_uidx`). All cache ops are best-effort, so the
+  route still works before the DB steps.
+
+**You must do (DB side), then it auto-activates:**
+1. Apply `20260629130000_split_materials_catalog.sql` then `20260629140000_catalog_nutrition.sql`.
+2. Set `SUPABASE_SERVICE_ROLE_KEY` in `.env.local` and in Vercel (Production + Preview) — **no**
+   `NEXT_PUBLIC_` prefix.
+3. `supabase gen types typescript --linked > types/database.types.ts`, then delete
+   `types/catalog.types.ts` and switch server code to `Tables<'catalog_items'>`.
 
 ### Phase 1 — Product lookup on unknown barcode ✅ (this iteration)
 - `lib/integrations/product-lookup/*` behind `ProductLookupProvider` (OFF + USDA + chain).

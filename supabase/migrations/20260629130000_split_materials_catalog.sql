@@ -50,8 +50,10 @@ END$$;
 
 -- 0b. RLS depends entirely on this helper. Assert it exists so a misconfigured
 --     target fails fast rather than silently shipping ineffective RLS.
---     (Confirm out-of-band that it is SECURITY DEFINER over organization_members
---      and returns uuid[] -- empty array, never NULL.)
+--     (Confirm out-of-band that it is SECURITY DEFINER over organization_members.
+--      It is SET-RETURNING (RETURNS SETOF uuid / TABLE), so policies must call it via a
+--      subquery -- `col IN (SELECT * FROM public.get_user_org_ids())` -- because Postgres
+--      forbids set-returning functions directly in a policy expression.)
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'get_user_org_ids') THEN
@@ -131,8 +133,11 @@ CREATE TABLE IF NOT EXISTS public.catalog_items (
   description  text,
   barcode      text,
   category     public.material_category,           -- reuse existing enum
-  category_id  bigint REFERENCES public.categories(id),
-  unit_id      uuid   REFERENCES public.units(id), -- the FK `materials` never declared
+  category_id  integer REFERENCES public.categories(id),  -- categories.id is int4 (NOT bigint)
+  -- Legacy materials.unit_id is loose TEXT (sometimes a unit NAME, not a units.id), so we keep
+  -- it as text with NO FK to avoid backfill type errors / data loss. Normalize to a real uuid
+  -- FK in a later cleanup once unit values are reconciled against units.id.
+  unit_id      text,
   -- specs intentionally EXCLUDED from the shared identity row. Commercially
   -- sensitive per-relationship data (cost/supplier/pricing) must NOT live on a
   -- world-readable global row. Per-org policy data belongs on org_materials or a
@@ -465,7 +470,7 @@ SELECT 'catalog_items_private', count(*) FROM public.catalog_items WHERE visibil
 -- =====================================================================
 -- Enabling RLS on both new tables is MANDATORY. An un-RLS catalog table holding
 -- private (owner_org_id) rows would leak cross-tenant data. We rely on the
--- existing Supabase helper get_user_org_ids() RETURNS uuid[] (asserted in 0b).
+-- existing Supabase helper get_user_org_ids() (set-returning; called via subquery, see 0b).
 -- service_role bypasses RLS for server-side global-catalog curation/seeding.
 
 ALTER TABLE public.catalog_items ENABLE ROW LEVEL SECURITY;
@@ -487,7 +492,7 @@ CREATE POLICY catalog_items_select
   TO authenticated
   USING (
     visibility = 'global'
-    OR owner_org_id = ANY (public.get_user_org_ids())
+    OR owner_org_id IN (SELECT * FROM public.get_user_org_ids())
   );
 
 -- INSERT: members may only create a PRIVATE row owned by one of their orgs.
@@ -498,7 +503,7 @@ CREATE POLICY catalog_items_insert_owned
   TO authenticated
   WITH CHECK (
     visibility = 'private'
-    AND owner_org_id = ANY (public.get_user_org_ids())
+    AND owner_org_id IN (SELECT * FROM public.get_user_org_ids())
   );
 
 -- UPDATE: only private rows owned by a user's org; cannot flip to global.
@@ -510,11 +515,11 @@ CREATE POLICY catalog_items_update_owned
   TO authenticated
   USING (
     visibility = 'private'
-    AND owner_org_id = ANY (public.get_user_org_ids())
+    AND owner_org_id IN (SELECT * FROM public.get_user_org_ids())
   )
   WITH CHECK (
     visibility = 'private'
-    AND owner_org_id = ANY (public.get_user_org_ids())
+    AND owner_org_id IN (SELECT * FROM public.get_user_org_ids())
   );
 
 -- DELETE: only private rows owned by a user's org.
@@ -524,7 +529,7 @@ CREATE POLICY catalog_items_delete_owned
   TO authenticated
   USING (
     visibility = 'private'
-    AND owner_org_id = ANY (public.get_user_org_ids())
+    AND owner_org_id IN (SELECT * FROM public.get_user_org_ids())
   );
 
 -- owner_org_id is immutable provenance: block any attempt to reassign it
@@ -556,7 +561,7 @@ CREATE POLICY org_materials_select
   ON public.org_materials
   FOR SELECT
   TO authenticated
-  USING (organization_id = ANY (public.get_user_org_ids()));
+  USING (organization_id IN (SELECT * FROM public.get_user_org_ids()));
 
 -- INSERT: org-scoped AND the catalog_item must be one the user may attach:
 -- either global, or a private identity owned by the SAME org. This closes the
@@ -567,7 +572,7 @@ CREATE POLICY org_materials_insert
   FOR INSERT
   TO authenticated
   WITH CHECK (
-    organization_id = ANY (public.get_user_org_ids())
+    organization_id IN (SELECT * FROM public.get_user_org_ids())
     AND EXISTS (
       SELECT 1 FROM public.catalog_items c
       WHERE c.id = catalog_item_id
@@ -579,9 +584,9 @@ CREATE POLICY org_materials_update
   ON public.org_materials
   FOR UPDATE
   TO authenticated
-  USING (organization_id = ANY (public.get_user_org_ids()))
+  USING (organization_id IN (SELECT * FROM public.get_user_org_ids()))
   WITH CHECK (
-    organization_id = ANY (public.get_user_org_ids())
+    organization_id IN (SELECT * FROM public.get_user_org_ids())
     AND EXISTS (
       SELECT 1 FROM public.catalog_items c
       WHERE c.id = catalog_item_id
@@ -593,7 +598,7 @@ CREATE POLICY org_materials_delete
   ON public.org_materials
   FOR DELETE
   TO authenticated
-  USING (organization_id = ANY (public.get_user_org_ids()));
+  USING (organization_id IN (SELECT * FROM public.get_user_org_ids()));
 
 
 COMMIT;
@@ -622,47 +627,61 @@ COMMIT;
 -- PHASE 2, STEP 2: Rewrite the two views to read from the NEW tables while
 --                  PRESERVING THE EXACT COLUMN CONTRACT (names, order, types).
 -- ---------------------------------------------------------------------
--- -- view_current_stock contract (alphabetical):
--- --  (active, category, category_id, current_stock, default_location_id,
--- --   description, lot_quantity, material_id, name, organization_id,
--- --   reorder_point, unit)
+-- These reproduce the LIVE view definitions exactly (verified against pg_get_viewdef),
+-- just re-sourced from org_materials + catalog_items. Key fidelity points:
+--   * category = categories.name via category_id join (NOT the material_category enum)
+--   * unit     = catalog_items.unit_id passed through raw (loose text; NO units join)
+--   * current_stock / quantity = SUM of int quantities (bigint), inner joins where the
+--     legacy view used inner joins.
+--
+-- view_current_stock (cols: material_id, name, description, category_id, category, unit,
+--                      lot_quantity, reorder_point, active, organization_id,
+--                      default_location_id, current_stock)
 -- CREATE OR REPLACE VIEW public.view_current_stock AS
 -- SELECT
---   om.is_active                              AS active,
---   c.category::text                          AS category,
---   c.category_id                             AS category_id,
---   COALESCE(SUM(im.quantity), 0)             AS current_stock,
---   om.default_location_id                    AS default_location_id,
---   c.description                             AS description,
---   om.lot_quantity                           AS lot_quantity,
---   om.id                                     AS material_id,
---   c.name                                    AS name,
---   om.organization_id                        AS organization_id,
---   om.reorder_point                          AS reorder_point,
---   u.name                                    AS unit
+--   om.id                                  AS material_id,
+--   ci.name                                AS name,
+--   ci.description                         AS description,
+--   ci.category_id                         AS category_id,
+--   cat.name                               AS category,        -- categories.name (NOT the enum)
+--   ci.unit_id                             AS unit,            -- raw text passthrough (matches legacy m.unit_id AS unit)
+--   om.lot_quantity                        AS lot_quantity,
+--   om.reorder_point                       AS reorder_point,
+--   om.is_active                           AS active,
+--   om.organization_id                     AS organization_id,
+--   om.default_location_id                 AS default_location_id,
+--   COALESCE(SUM(im.quantity), 0::bigint)  AS current_stock
 -- FROM public.org_materials om
--- JOIN public.catalog_items c ON c.id = om.catalog_item_id
--- LEFT JOIN public.units u    ON u.id = c.unit_id
+-- JOIN public.catalog_items ci    ON ci.id = om.catalog_item_id
+-- LEFT JOIN public.categories cat ON cat.id = ci.category_id
 -- LEFT JOIN public.inventory_movements im ON im.material_id = om.id
--- GROUP BY om.id, c.category, c.category_id, om.default_location_id, c.description,
---          om.lot_quantity, c.name, om.organization_id, om.reorder_point, u.name;
+-- GROUP BY om.id, ci.id, cat.name;
 --
--- -- view_stock_by_location contract:
--- --  (location_id, location_name, material_id, material_name,
--- --   organization_id, quantity)
+-- view_stock_by_location (cols: material_id, material_name, location_id, location_name,
+--                         organization_id, quantity) -- inner joins, like the live view
 -- CREATE OR REPLACE VIEW public.view_stock_by_location AS
 -- SELECT
---   im.location_id                 AS location_id,
---   l.name                         AS location_name,
---   om.id                          AS material_id,
---   c.name                         AS material_name,
---   om.organization_id             AS organization_id,
---   COALESCE(SUM(im.quantity), 0)  AS quantity
+--   im.material_id          AS material_id,
+--   ci.name                 AS material_name,
+--   im.location_id          AS location_id,
+--   l.name                  AS location_name,
+--   im.organization_id      AS organization_id,
+--   SUM(im.quantity)        AS quantity
 -- FROM public.inventory_movements im
 -- JOIN public.org_materials om ON om.id = im.material_id
--- JOIN public.catalog_items c  ON c.id = om.catalog_item_id
--- LEFT JOIN public.locations l ON l.id = im.location_id
--- GROUP BY im.location_id, l.name, om.id, c.name, om.organization_id;
+-- JOIN public.catalog_items ci ON ci.id = om.catalog_item_id
+-- JOIN public.locations l      ON l.id = im.location_id
+-- GROUP BY im.material_id, ci.name, im.location_id, l.name, im.organization_id;
+--
+-- ---------------------------------------------------------------------
+-- PHASE 2, STEP 2b: Rewrite get_dashboard_metrics (docs/sql/02_dashboard_compute.sql).
+--   Its `mats` CTE selects FROM public.materials and `to_jsonb(m)` builds the
+--   materials_active payload; the recent-activity feed LEFT JOINs materials for the name.
+--   Re-source `mats` from org_materials om JOIN catalog_items ci (mapping om policy +
+--   ci identity into the same field names the client reads: id, name, unit_id,
+--   reorder_point, is_mrp_enabled, default_location_id, category, ...), and change the
+--   activity LEFT JOIN to org_materials -> catalog_items for the name. Keep total_materials_count
+--   counting the org's org_materials rows.
 --
 -- ---------------------------------------------------------------------
 -- PHASE 2, STEP 3: Drop the legacy table (only after app + views cut over).
