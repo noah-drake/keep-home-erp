@@ -4,8 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../context/OrganizationContext'
 import { Plus, Trash2, Save, Package, Copy, CheckSquare, Square, ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Barcode } from 'lucide-react'
 import { supabase } from '@/utils/supabase'
-import type { Tables } from '@/types/database.types'
-import { useMaterials } from '../hooks/useMaterials'
+import { useMaterials, type KeepMaterial } from '../hooks/useMaterials'
 import { useLocations } from '../hooks/useLocations'
 import { useStockByLocation } from '../hooks/useStockByLocation'
 import {
@@ -31,7 +30,7 @@ function TransactionEngine() {
 
   const [saving, setSaving] = useState(false)
   const [autoSwitched, setAutoSwitched] = useState(false) // Tracks if the system intervened
-  const [primaryMaterial, setPrimaryMaterial] = useState<Tables<'materials'> | null>(null)
+  const [primaryMaterial, setPrimaryMaterial] = useState<KeepMaterial | null>(null)
 
   // Transaction State
   const [lines, setLines] = useState<TransactionLine[]>([])

@@ -7,6 +7,7 @@ import { AlertTriangle, ArrowRight, Database, Store, Package, Plus, Warehouse } 
 import { supabase } from '@/utils/supabase'
 import { useOrganization } from '@/app/context/OrganizationContext'
 import type { Tables, TablesInsert } from '@/types/database.types'
+import { adoptCatalogItem, createKeepItem } from '@/lib/catalog'
 import StoreSelectionStep, { type StoreBucket } from './components/StoreSelectionStep'
 import GoodsMappingStep, { type GlobalCatalogMaterial, type CustomWizardLine } from './components/GoodsMappingStep'
 
@@ -17,7 +18,6 @@ type OrganizationCtx = {
 }
 
 type LocationInsert = TablesInsert<'locations'>
-type MaterialInsert = TablesInsert<'materials'>
 type MovementInsert = TablesInsert<'inventory_movements'>
 type InsertedLocation = Pick<Tables<'locations'>, 'id' | 'name'>
 
@@ -73,34 +73,6 @@ function parseOptionalInt(value: string): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-/** Local clone payload from a global template row */
-function buildClonePayload(
-  source: GlobalCatalogMaterial,
-  organizationId: string,
-  defaultLocationId: string | null
-): MaterialInsert {
-  return {
-    name: source.name,
-    description: source.description,
-    category: (source.category as TablesInsert<'materials'>['category']) ?? null,
-    category_id: source.category_id,
-    unit_id: source.unit_id,
-    reorder_point: source.reorder_point,
-    lot_quantity: source.lot_quantity,
-    is_mrp_enabled: source.is_mrp_enabled,
-    barcode: source.barcode ?? null,
-    is_active: source.is_active ?? true,
-    organization_id: organizationId,
-    default_location_id: defaultLocationId,
-    is_global: false,
-  }
-}
-
-/** DB allows null org on global-shared rows; generated Insert types may lag — assertion at insert site */
-type GlobalCatalogSharePayload = Omit<TablesInsert<'materials'>, 'organization_id'> & {
-  organization_id?: string | null
-}
-
 export default function OnboardingPage() {
   const router = useRouter()
   const { organization } = useOrganization() as OrganizationCtx
@@ -121,7 +93,6 @@ export default function OnboardingPage() {
   const [customReorderPoint, setCustomReorderPoint] = useState('')
   const [customLotQty, setCustomLotQty] = useState('')
   const [customGoodStore, setCustomGoodStore] = useState<string>('')
-  const [customShareGlobal, setCustomShareGlobal] = useState(false)
 
   /** quantity key: `catalog:${materialId}` or `custom:${clientId}` */
   const [quantities, setQuantities] = useState<Record<string, number>>({})
@@ -137,15 +108,27 @@ export default function OnboardingPage() {
       setCatalogError('')
       try {
         const { data, error: qErr } = await supabase
-          .from('materials')
-          .select(
-            'id, name, description, category_id, category, unit_id, reorder_point, lot_quantity, is_mrp_enabled, barcode, is_active'
-          )
-          .eq('is_global', true)
+          .from('catalog_items')
+          .select('id, name, description, category_id, category, unit_id, barcode')
+          .eq('visibility', 'global')
 
         if (cancelled) return
         if (qErr) throw qErr
-        setGlobalCatalog((data as GlobalCatalogMaterial[]) ?? [])
+        // catalog_items carries identity only; policy fields default to null/false in the wizard.
+        const mapped: GlobalCatalogMaterial[] = (data ?? []).map((c) => ({
+          id: c.id,
+          name: c.name,
+          description: c.description,
+          category_id: c.category_id,
+          category: c.category,
+          unit_id: c.unit_id,
+          barcode: c.barcode,
+          reorder_point: null,
+          lot_quantity: null,
+          is_mrp_enabled: false,
+          is_active: true,
+        }))
+        setGlobalCatalog(mapped)
       } catch (e: unknown) {
         if (!cancelled) setCatalogError(e instanceof Error ? e.message : 'Failed to load catalog.')
       } finally {
@@ -211,7 +194,6 @@ export default function OnboardingPage() {
       name,
       reorder_point: reorderPoint,
       lot_quantity: lotQty,
-      shareGlobal: customShareGlobal,
       storeName: customGoodStore || null,
     }
 
@@ -222,7 +204,6 @@ export default function OnboardingPage() {
     setCustomReorderPoint('')
     setCustomLotQty('')
     setCustomGoodStore('')
-    setCustomShareGlobal(false)
   }
 
   const auditCatalogEntries = useMemo(() => {
@@ -272,72 +253,48 @@ export default function OnboardingPage() {
         (insertedLocations as InsertedLocation[]).map((loc) => [loc.name, loc.id])
       )
 
-      const materialRowsByAuditKey = new Map<string, Pick<Tables<'materials'>, 'id' | 'name' | 'default_location_id'>>()
+      type AdoptedRow = { id: string; name: string; default_location_id: string | null }
+      const materialRowsByAuditKey = new Map<string, AdoptedRow>()
 
-      // Clone global catalog selections into local materials
+      // Adopt each chosen GLOBAL catalog item into this org (org_materials policy row).
       for (const { materialId, storeName, item } of auditCatalogEntries) {
         const defaultLocationId = locationMap.get(storeName) ?? null
-        const payload = buildClonePayload(item, organization.id, defaultLocationId)
-        const { data: materialRow, error: matErr } = await supabase
-          .from('materials')
-          .insert(payload)
-          .select('id, name, default_location_id')
-          .single()
-        if (matErr) throw matErr
-        materialRowsByAuditKey.set(`catalog:${materialId}`, materialRow)
+        const orgMaterialId = await adoptCatalogItem(organization.id, item.id, {
+          default_location_id: defaultLocationId,
+          reorder_point: item.reorder_point,
+          lot_quantity: item.lot_quantity,
+          is_mrp_enabled: item.is_mrp_enabled,
+        })
+        materialRowsByAuditKey.set(`catalog:${materialId}`, {
+          id: orgMaterialId,
+          name: item.name,
+          default_location_id: defaultLocationId,
+        })
       }
 
-      // Customs: local row + optional global template row (materials-only, is_global)
+      // Customs: mint a private catalog item and adopt it into the org via the helper.
+      // NOTE (PHASE2): the old "share to global catalog" checkbox can no longer be honored
+      // client-side — RLS only allows server-side creation of global catalog rows. We create the
+      // good as a private catalog item regardless; `line.shareGlobal` is intentionally ignored.
       for (const line of customLines) {
         const defaultLocationId = line.storeName ? locationMap.get(line.storeName) ?? null : null
 
-        const localPayload: MaterialInsert = {
-          name: line.name,
-          description: null,
-          organization_id: organization.id,
-          default_location_id: defaultLocationId,
-          reorder_point: line.reorder_point,
-          lot_quantity: line.lot_quantity,
-          is_global: false,
-          is_active: true,
-          is_mrp_enabled: false,
-          category_id: null,
-          unit_id: null,
-          category: null,
-          barcode: null,
-        }
-
-        const { data: localRow, error: localErr } = await supabase
-          .from('materials')
-          .insert(localPayload)
-          .select('id, name, default_location_id')
-          .single()
-
-        if (localErr) throw localErr
-        materialRowsByAuditKey.set(`custom:${line.clientId}`, localRow)
-
-        if (line.shareGlobal) {
-          const globalShare: GlobalCatalogSharePayload = {
-            name: line.name,
-            description: null,
-            organization_id: null,
-            default_location_id: null,
+        const orgMaterialId = await createKeepItem(
+          organization.id,
+          { name: line.name, description: null, category_id: null, unit_id: null, barcode: null, category: null },
+          {
+            default_location_id: defaultLocationId,
             reorder_point: line.reorder_point,
             lot_quantity: line.lot_quantity,
-            is_global: true,
-            is_active: true,
-            category_id: null,
-            category: null as TablesInsert<'materials'>['category'],
-            unit_id: null,
-            barcode: null,
             is_mrp_enabled: false,
           }
-          const { error: gErr } = await supabase
-            .from('materials')
-            .insert(globalShare as TablesInsert<'materials'>)
+        )
 
-          if (gErr) throw gErr
-        }
+        materialRowsByAuditKey.set(`custom:${line.clientId}`, {
+          id: orgMaterialId,
+          name: line.name,
+          default_location_id: defaultLocationId,
+        })
       }
 
       const movementPayload: MovementInsert[] = []
@@ -472,8 +429,6 @@ export default function OnboardingPage() {
             setCustomLotQty={setCustomLotQty}
             customGoodStore={customGoodStore}
             setCustomGoodStore={setCustomGoodStore}
-            customShareGlobal={customShareGlobal}
-            setCustomShareGlobal={setCustomShareGlobal}
             addCustomGood={addCustomGood}
             customLines={customLines}
             pillBase={pillBase}
@@ -526,7 +481,6 @@ export default function OnboardingPage() {
                     <p className="text-sm font-black text-gray-100 truncate">{line.name}</p>
                     <p className="text-[9px] font-black uppercase tracking-widest text-gray-500 mt-1">
                       Custom • {line.storeName ?? '?'}
-                      {line.shareGlobal ? ' · + global catalog share' : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">

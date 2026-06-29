@@ -3,10 +3,14 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/utils/supabase'
 import { useOrganization } from '../context/OrganizationContext'
 import { Package, CheckCircle2, Loader2, Database } from 'lucide-react'
+import { adoptCatalogItem } from '@/lib/catalog'
+import type { Tables } from '@/types/database.types'
+
+type GlobalCatalogItem = Tables<'catalog_items'>
 
 export default function StarterKits({ onComplete }: { onComplete: () => void }) {
   const { organization } = useOrganization()
-  const [kits, setKits] = useState<Record<string, any[]>>({})
+  const [kits, setKits] = useState<Record<string, GlobalCatalogItem[]>>({})
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState<string | null>(null)
   const [finished, setFinished] = useState<string[]>([])
@@ -14,14 +18,13 @@ export default function StarterKits({ onComplete }: { onComplete: () => void }) 
   useEffect(() => {
     const fetchGlobalKits = async () => {
       setLoading(true)
-      const { data, error } = await supabase
-        .from('materials')
+      const { data } = await supabase
+        .from('catalog_items')
         .select('*')
-        .is('organization_id', null) // Fetch ONLY global items
-        .eq('is_active', true)
+        .eq('visibility', 'global') // Fetch ONLY shared/global catalog items
 
       if (data) {
-        const grouped = data.reduce((acc: Record<string, any[]>, item) => {
+        const grouped = data.reduce((acc: Record<string, GlobalCatalogItem[]>, item) => {
           const kitName = item.category || 'General Essentials'
           if (!acc[kitName]) acc[kitName] = []
           acc[kitName].push(item)
@@ -34,25 +37,27 @@ export default function StarterKits({ onComplete }: { onComplete: () => void }) 
     fetchGlobalKits()
   }, [])
 
-  const handleImport = async (kitName: string, items: any[]) => {
+  const handleImport = async (kitName: string, items: GlobalCatalogItem[]) => {
     if (!organization) return
     setImporting(kitName)
 
-    // Strip global IDs so Supabase assigns new primary keys for the local plant
-    const payload = items.map(item => {
-      const { material_id, created_at, organization_id, ...rest } = item
-      return { ...rest, organization_id: organization.id, is_active: true }
-    })
-
-    const { error } = await supabase.from('materials').insert(payload)
-
-    if (error) {
-      alert(error.message)
-      setImporting(null)
-    } else {
+    try {
+      // Adopt each global catalog item into this org. Ignore "already adopted" so re-running a
+      // kit is idempotent rather than failing the whole batch.
+      for (const item of items) {
+        try {
+          await adoptCatalogItem(organization.id, item.id, {})
+        } catch (err) {
+          if (err instanceof Error && err.message === 'This item is already in your Keep.') continue
+          throw err
+        }
+      }
       setFinished(prev => [...prev, kitName])
       setImporting(null)
       setTimeout(() => onComplete(), 1000) // Triggers the dashboard refresh
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Import failed.')
+      setImporting(null)
     }
   }
 
@@ -64,7 +69,7 @@ export default function StarterKits({ onComplete }: { onComplete: () => void }) 
       <div className="text-center p-12 border-2 border-dashed border-gray-800 rounded-[2.5rem] bg-[#0f0f0f]">
         <Database className="mx-auto text-gray-700 mb-4" size={32} />
         <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">No Global Kits Found</p>
-        <p className="text-[9px] font-bold text-gray-600 mt-2 max-w-sm mx-auto">To see kits here, ensure your Supabase database has materials with a NULL organization_id.</p>
+        <p className="text-[9px] font-bold text-gray-600 mt-2 max-w-sm mx-auto">To see kits here, ensure your Supabase database has catalog_items with global visibility.</p>
       </div>
   )
 

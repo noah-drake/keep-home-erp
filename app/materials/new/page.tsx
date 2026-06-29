@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../../context/OrganizationContext'
 import { ArrowLeft, Box, Save, Search, Check, X, CheckCircle2, Package, List, Copy, Settings2, ToggleLeft, ToggleRight } from 'lucide-react'
 import { supabase } from '@/utils/supabase'
+import { createKeepItem, type KeepIdentity, type KeepPolicy } from '@/lib/catalog'
 
 function NewMaterialContent() {
   const router = useRouter()
@@ -80,13 +81,36 @@ function NewMaterialContent() {
         supabase.from('locations').select('*').eq('organization_id', organization.id).order('name'),
         supabase.from('categories').select('*').order('name'),
         supabase.from('units').select('*').order('name'),
-        supabase.from('materials').select('*').or(`organization_id.eq.${organization.id},organization_id.is.null`).eq('is_active', true).order('name')
+        // The org's existing goods (policy + joined identity), for the clone-to-prefill dropdown.
+        supabase
+          .from('org_materials')
+          .select('id, default_location_id, reorder_point, lot_quantity, is_mrp_enabled, catalog_items(name, description, category_id, unit_id)')
+          .eq('organization_id', organization.id)
+          .eq('is_active', true)
       ])
-      
+
       if (locRes.data) setLocations(locRes.data)
       if (catRes.data) setCategories(catRes.data)
       if (unitRes.data) setUnits(unitRes.data)
-      if (itemsRes.data) setAllItems(itemsRes.data)
+      if (itemsRes.data) {
+        // Flatten the joined identity onto each row so the existing clone UI keeps working.
+        const flattened = itemsRes.data.map((row) => {
+          const catalog = Array.isArray(row.catalog_items) ? row.catalog_items[0] : row.catalog_items
+          return {
+            id: row.id,
+            name: catalog?.name ?? '',
+            description: catalog?.description ?? null,
+            category_id: catalog?.category_id ?? null,
+            unit_id: catalog?.unit_id ?? null,
+            default_location_id: row.default_location_id,
+            reorder_point: row.reorder_point,
+            lot_quantity: row.lot_quantity,
+            is_mrp_enabled: row.is_mrp_enabled,
+          }
+        })
+        flattened.sort((a, b) => a.name.localeCompare(b.name))
+        setAllItems(flattened)
+      }
     }
     fetchData()
   }, [organization])
@@ -156,30 +180,31 @@ function NewMaterialContent() {
     e.preventDefault()
     if (!name.trim() || !organization) return
     setSaving(true)
-    
-    // Strict relational payload
-    const payload = {
-      organization_id: organization.id,
+
+    // Split the form into product identity (catalog_items) and per-org policy (org_materials).
+    const identity: KeepIdentity = {
       name,
       description: description || null,
       category_id: categoryId ? parseInt(categoryId) : null, // Ensures integer for categories
       barcode: barcode.trim() || null,
       unit_id: unitId || null,
+      category: null,
+    }
+    const policy: KeepPolicy = {
       default_location_id: defaultLocationId || null,
       is_mrp_enabled: isMrpEnabled,
       reorder_point: isMrpEnabled && reorderPoint !== '' ? parseFloat(reorderPoint) : null,
       lot_quantity: isMrpEnabled && lotQuantity !== '' ? parseFloat(lotQuantity) : null,
-      is_active: true
     }
 
-    const { data, error } = await supabase.from('materials').insert([payload]).select().single()
-    setSaving(false)
-    
-    if (error) {
-      alert(error.message)
-    } else {
-      // Trigger the Success UI State
-      setSuccessData({ id: data.id, name: data.name })
+    try {
+      const newId = await createKeepItem(organization.id, identity, policy)
+      setSaving(false)
+      // Trigger the Success UI State (id is the new org_materials id).
+      setSuccessData({ id: newId, name })
+    } catch (err) {
+      setSaving(false)
+      alert(err instanceof Error ? err.message : 'Failed to save item.')
     }
   }
 
@@ -244,8 +269,8 @@ function NewMaterialContent() {
              <div className="relative">
                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
                  <select onChange={(e) => handleCloneItem(e.target.value)} className="w-full bg-black border border-gray-800 p-4 pl-12 rounded-2xl outline-none focus:border-blue-500 transition-colors font-bold text-sm text-gray-200 appearance-none">
-                   <option value="">-- Search global or local items to clone... --</option>
-                   {allItems.map(g => <option key={g.id} value={g.id}>{g.name} {!g.organization_id && '(Global)'}</option>)}
+                   <option value="">-- Search your items to clone... --</option>
+                   {allItems.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                  </select>
              </div>
            </div>

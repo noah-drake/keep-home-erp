@@ -21,7 +21,6 @@ export type CustomWizardLine = {
   name: string
   reorder_point: number | null
   lot_quantity: number | null
-  shareGlobal: boolean
   storeName: string | null
 }
 
@@ -40,8 +39,6 @@ interface GoodsMappingStepProps {
   setCustomLotQty: React.Dispatch<React.SetStateAction<string>>
   customGoodStore: string
   setCustomGoodStore: React.Dispatch<React.SetStateAction<string>>
-  customShareGlobal: boolean
-  setCustomShareGlobal: React.Dispatch<React.SetStateAction<boolean>>
   addCustomGood: () => void
   customLines: CustomWizardLine[]
   pillBase: string
@@ -65,8 +62,6 @@ export default function GoodsMappingStep({
   setCustomLotQty,
   customGoodStore,
   setCustomGoodStore,
-  customShareGlobal,
-  setCustomShareGlobal,
   addCustomGood,
   customLines,
   pillBase,
@@ -170,15 +165,6 @@ export default function GoodsMappingStep({
                 ))}
               </select>
             </div>
-            <label className="mt-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400">
-              <input
-                type="checkbox"
-                checked={customShareGlobal}
-                onChange={(e) => setCustomShareGlobal(e.target.checked)}
-                className="accent-purple-500"
-              />
-              Share to Global Catalog (materials · is_global)
-            </label>
             <button
               type="button"
               onClick={addCustomGood}
@@ -198,7 +184,6 @@ export default function GoodsMappingStep({
                   <li key={l.clientId}>
                     • {l.name}
                     {l.storeName ? ` → ${l.storeName}` : ''}
-                    {l.shareGlobal ? ' · will share globally' : ''}
                   </li>
                 ))}
               </ul>

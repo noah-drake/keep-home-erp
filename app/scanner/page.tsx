@@ -25,11 +25,13 @@ function ScannerContent() {
       return
     }
 
+    // Find one of the org's adopted goods whose catalog identity carries this barcode. The
+    // returned id is the org_materials id (== inventory key) the transaction engine expects.
     const { data, error } = await supabase
-      .from('materials')
-      .select('id')
-      .eq('barcode', code)
-      .or(`organization_id.eq.${organization.id},organization_id.is.null`)
+      .from('org_materials')
+      .select('id, catalog_items!inner(barcode)')
+      .eq('organization_id', organization.id)
+      .eq('catalog_items.barcode', code)
       .limit(1)
 
     if (!error && data && data.length > 0) {

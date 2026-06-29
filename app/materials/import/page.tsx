@@ -5,15 +5,17 @@ import Papa from 'papaparse'
 import { useRouter } from 'next/navigation'
 import { UploadCloud, ArrowLeft, CheckCircle2, AlertTriangle, Database, ArrowRight } from 'lucide-react'
 
-import { supabase } from '@/utils/supabase'
 import { useOrganization } from '@/app/context/OrganizationContext'
-import type { TablesInsert } from '@/types/database.types'
+import { createKeepItem, type KeepIdentity, type KeepPolicy } from '@/lib/catalog'
 
 type RawRow = Record<string, string>
 type TargetField = 'name' | 'description' | 'category_id' | 'reorder_point'
 type FieldMapping = Partial<Record<TargetField, string>>
 
-type ImportMaterial = TablesInsert<'materials'>
+interface ImportRow {
+  identity: KeepIdentity
+  policy: KeepPolicy
+}
 
 function parseNumber(value: string | undefined): number | null {
   if (!value) return null
@@ -128,7 +130,7 @@ export default function MaterialsImportPage() {
       return
     }
 
-    const inserts: ImportMaterial[] = []
+    const imports: ImportRow[] = []
 
     for (const r of rows) {
       const name = getCell(r, mapping.name).trim()
@@ -138,28 +140,34 @@ export default function MaterialsImportPage() {
       const categoryId = parseNumber(getCell(r, mapping.category_id))
       const reorderPoint = parseNumber(getCell(r, mapping.reorder_point))
 
-      const row: ImportMaterial = {
-        name,
-        organization_id: organization.id,
-        description: description || null,
-        category_id: categoryId,
-        reorder_point: reorderPoint,
-      }
-
-      inserts.push(row)
+      imports.push({
+        identity: {
+          name,
+          description: description || null,
+          category_id: categoryId,
+        },
+        // A reorder point implies MRP should track this good.
+        policy: {
+          reorder_point: reorderPoint,
+          is_mrp_enabled: reorderPoint !== null,
+        },
+      })
     }
 
-    if (inserts.length === 0) {
+    if (imports.length === 0) {
       setError('No valid rows found after mapping. Make sure the mapped name column has values.')
       return
     }
 
     setCommitting(true)
     try {
-      const { error: insertError } = await supabase.from('materials').insert(inserts)
-      if (insertError) throw insertError
+      // Each row creates (or reuses) a catalog identity then adopts it into the org. Unbarcoded
+      // rows always mint a private catalog item; barcoded rows would reuse a matching global.
+      for (const row of imports) {
+        await createKeepItem(organization.id, row.identity, row.policy)
+      }
 
-      setMessage(`Committed ${inserts.length} materials to your registry.`)
+      setMessage(`Committed ${imports.length} materials to your registry.`)
       router.push('/materials')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Import failed.')

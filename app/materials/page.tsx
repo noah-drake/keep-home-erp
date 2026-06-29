@@ -2,7 +2,7 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { useOrganization } from '../context/OrganizationContext'
-import { Package, Plus, Search, MoreVertical, Edit2, Trash2, Ban, ArrowLeftRight, ClipboardCheck, Shield, AlertCircle, CheckCircle2, MapPin, Box, Database } from 'lucide-react'
+import { Package, Plus, Search, MoreVertical, Edit2, Trash2, Ban, ArrowLeftRight, ClipboardCheck, Shield, AlertCircle, CheckCircle2, MapPin, Box, Database, Globe } from 'lucide-react'
 import { supabase } from '@/utils/supabase'
 
 function GoodsPageContent() {
@@ -50,7 +50,8 @@ function GoodsPageContent() {
       return
     }
     if (!confirm(`Are you sure you want to delete ${name}?`)) return
-    const { error } = await supabase.from('materials').delete().eq('id', id)
+    // material_id == org_materials.id; remove the org's adoption row (identity stays in the catalog).
+    const { error } = await supabase.from('org_materials').delete().eq('id', id)
     if (error) alert(error.message)
     else setGoods(goods.filter(g => g.material_id !== id))
   }
@@ -62,7 +63,8 @@ function GoodsPageContent() {
       alert(`BLOCKED: You cannot flag an item as Inactive while you still have ${currentStock} in stock.`)
       return
     }
-    const { error } = await supabase.from('materials').update({ is_active: !currentState }).eq('id', id)
+    // is_active is now per-org policy on org_materials (keyed by material_id == org_materials.id).
+    const { error } = await supabase.from('org_materials').update({ is_active: !currentState }).eq('id', id)
     if (error) alert(error.message)
     else setGoods(goods.map(g => g.material_id === id ? { ...g, is_active: !currentState } : g))
   }
@@ -84,6 +86,12 @@ function GoodsPageContent() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push('/materials/adopt')}
+              className="bg-[#0f0f0f] border border-gray-800 hover:border-blue-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-purple-900/10 active:scale-95 text-gray-200 hover:text-white"
+            >
+              <Globe size={16} className="text-blue-500" /> Adopt from Catalog
+            </button>
             <button
               onClick={() => router.push('/materials/import')}
               className="bg-[#0f0f0f] border border-gray-800 hover:border-purple-500 px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 transition-all shadow-lg shadow-purple-900/10 active:scale-95 text-gray-200 hover:text-white"

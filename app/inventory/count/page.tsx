@@ -23,8 +23,7 @@ function CountEngineContent() {
   const { organization } = useOrganization()
 
   const { locations, loading: locationsLoading } = useLocations()
-  // Audits can count shared/global goods too, not just org-owned ones.
-  const { materials, loading: materialsLoading } = useMaterials({ includeGlobal: true })
+  const { materials, loading: materialsLoading } = useMaterials()
   const loading = locationsLoading || materialsLoading
 
   const [saving, setSaving] = useState(false)

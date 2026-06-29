@@ -4,6 +4,7 @@ import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../../context/OrganizationContext'
 import { ArrowLeft, Save, Trash2, Package, MapPin, Target, AlertTriangle, ArrowRightLeft, Edit2, X, ToggleLeft, ToggleRight, History, ArrowDownLeft, ArrowUpRight, Settings2, Check } from 'lucide-react'
 import { supabase } from '@/utils/supabase'
+import type { Tables } from '@/types/database.types'
 
 function ItemMasterContent() {
   const router = useRouter()
@@ -28,6 +29,11 @@ function ItemMasterContent() {
   const [categoryId, setCategoryId] = useState('')
   const [unitId, setUnitId] = useState('')
   const [locationId, setLocationId] = useState('')
+
+  // Catalog identity context: the catalog_items id this org_material points at, and whether this
+  // org may edit the identity (only its own private catalog rows; globals are read-only/shared).
+  const [catalogItemId, setCatalogItemId] = useState<string | null>(null)
+  const [identityEditable, setIdentityEditable] = useState(false)
   
   // MRP State
   const [isMrpEnabled, setIsMrpEnabled] = useState(false)
@@ -58,7 +64,8 @@ function ItemMasterContent() {
         supabase.from('categories').select('*').order('name'),
         supabase.from('units').select('*').order('name'),
         supabase.from('locations').select('*').eq('organization_id', organization.id).order('name'),
-        supabase.from('materials').select('*').eq('id', itemId).single(),
+        // org_materials carries policy; the joined catalog_items carries identity + ownership.
+        supabase.from('org_materials').select('*, catalog_items(*)').eq('id', itemId).single(),
         supabase.from('view_current_stock').select('current_stock').eq('material_id', itemId).single(),
         supabase.from('view_stock_by_location').select('location_id, quantity').eq('material_id', itemId),
         supabase.from('inventory_movements').select('*, locations(name)').eq('material_id', itemId).order('created_at', { ascending: false }).limit(10)
@@ -81,15 +88,24 @@ function ItemMasterContent() {
       }
 
       if (matRes.data) {
-        setName(matRes.data.name)
-        setDescription(matRes.data.description || '')
-        setIsActive(matRes.data.is_active ?? true)
-        setCategoryId(matRes.data.category_id ? String(matRes.data.category_id) : '')
-        setUnitId(matRes.data.unit_id || '')
-        setLocationId(matRes.data.default_location_id || '')
-        setIsMrpEnabled(matRes.data.is_mrp_enabled ?? false)
-        setReorderPoint(matRes.data.reorder_point ?? '')
-        setLotQuantity(matRes.data.lot_quantity ?? '')
+        const om = matRes.data
+        const catalog: Tables<'catalog_items'> | null = Array.isArray(om.catalog_items)
+          ? om.catalog_items[0] ?? null
+          : om.catalog_items
+        // Identity (from catalog_items)
+        setName(catalog?.name ?? '')
+        setDescription(catalog?.description || '')
+        setCategoryId(catalog?.category_id ? String(catalog.category_id) : '')
+        setUnitId(catalog?.unit_id || '')
+        setCatalogItemId(om.catalog_item_id)
+        // Only the org's own private catalog rows are editable here; globals are shared & read-only.
+        setIdentityEditable(catalog?.visibility === 'private' && catalog?.owner_org_id === organization.id)
+        // Policy (from org_materials)
+        setIsActive(om.is_active ?? true)
+        setLocationId(om.default_location_id || '')
+        setIsMrpEnabled(om.is_mrp_enabled ?? false)
+        setReorderPoint(om.reorder_point ?? '')
+        setLotQuantity(om.lot_quantity ?? '')
       }
       setLoading(false)
     }
@@ -136,27 +152,40 @@ function ItemMasterContent() {
   // --- SAVE LOGIC ---
   const handleSave = async () => {
     setSaving(true)
-    const payload = {
-      name, 
-      description: description || null, 
-      is_active: isActive, 
-      category_id: categoryId ? parseInt(categoryId) : null, 
-      unit_id: unitId || null,
-      default_location_id: locationId || null, 
+
+    // 1. Policy always updates on this org's org_materials row.
+    const policyPayload = {
+      is_active: isActive,
+      default_location_id: locationId || null,
       is_mrp_enabled: isMrpEnabled,
-      reorder_point: isMrpEnabled && reorderPoint !== '' ? Number(reorderPoint) : null, 
-      lot_quantity: isMrpEnabled && lotQuantity !== '' ? Number(lotQuantity) : null
+      reorder_point: isMrpEnabled && reorderPoint !== '' ? Number(reorderPoint) : null,
+      lot_quantity: isMrpEnabled && lotQuantity !== '' ? Number(lotQuantity) : null,
     }
-    const { error } = await supabase.from('materials').update(payload).eq('id', itemId)
+    const { error: policyErr } = await supabase.from('org_materials').update(policyPayload).eq('id', itemId)
+    if (policyErr) { setSaving(false); alert(policyErr.message); return }
+
+    // 2. Identity only updates when this org owns the (private) catalog item.
+    if (identityEditable && catalogItemId) {
+      const identityPayload = {
+        name,
+        description: description || null,
+        category_id: categoryId ? parseInt(categoryId) : null,
+        unit_id: unitId || null,
+      }
+      const { error: idErr } = await supabase.from('catalog_items').update(identityPayload).eq('id', catalogItemId)
+      if (idErr) { setSaving(false); alert(idErr.message); return }
+    }
+
     setSaving(false)
-    if (error) alert(error.message)
-    else { setIsEditing(false); router.replace(`/materials/${itemId}`) }
+    setIsEditing(false)
+    router.replace(`/materials/${itemId}`)
   }
 
   const handleDelete = async () => {
     if (!confirm(`CASCADE DANGER: Force delete ${name}? This will permanently erase ALL transaction history.`)) return
+    // Remove this org's inventory ledger then its adoption row; the catalog_items identity remains.
     await supabase.from('inventory_movements').delete().eq('material_id', itemId)
-    const { error } = await supabase.from('materials').delete().eq('id', itemId)
+    const { error } = await supabase.from('org_materials').delete().eq('id', itemId)
     if (error) alert(error.message)
     else router.push('/materials')
   }
@@ -201,7 +230,13 @@ function ItemMasterContent() {
             {/* Identity Box */}
             <div className={`bg-[#0f0f0f] border p-6 rounded-[2.5rem] space-y-6 transition-colors ${isEditing ? 'border-purple-500/50' : 'border-gray-800'}`}>
                <div className="flex items-center justify-between border-b border-gray-800/50 pb-4">
-                  <div className="flex items-center gap-3"><Package size={18} className="text-purple-500" /><h2 className="text-xs font-black uppercase tracking-widest text-gray-400">Core Identity</h2></div>
+                  <div className="flex items-center gap-3">
+                    <Package size={18} className="text-purple-500" />
+                    <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">Core Identity</h2>
+                    {isEditing && !identityEditable && (
+                      <span className="text-[8px] font-black uppercase tracking-widest text-blue-400 bg-blue-950/30 border border-blue-900/30 px-2 py-1 rounded-md">Shared Catalog Item</span>
+                    )}
+                  </div>
                   {isEditing && (
                     <button onClick={() => setIsActive(!isActive)} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest">
                       {isActive ? <ToggleRight size={24} className="text-green-500" /> : <ToggleLeft size={24} className="text-gray-600" />} <span className={isActive ? 'text-green-500' : 'text-gray-500'}>{isActive ? 'Active Status' : 'Inactive'}</span>
@@ -211,17 +246,17 @@ function ItemMasterContent() {
                <div className="space-y-5">
                  <div>
                    <label className="lbl">Item Name</label>
-                   {isEditing ? <input value={name} onChange={e => setName(e.target.value)} className={inpt} /> : <p className="val">{name}</p>}
+                   {isEditing && identityEditable ? <input value={name} onChange={e => setName(e.target.value)} className={inpt} /> : <p className="val">{name}</p>}
                  </div>
                  <div>
                    <label className="lbl">Description / Notes</label>
-                   {isEditing ? <textarea value={description} onChange={e => setDescription(e.target.value)} className={`${inpt} h-20 resize-none`} placeholder="Add details..." /> : <p className={`val ${!description && 'italic text-gray-500'}`}>{description || 'No description provided.'}</p>}
+                   {isEditing && identityEditable ? <textarea value={description} onChange={e => setDescription(e.target.value)} className={`${inpt} h-20 resize-none`} placeholder="Add details..." /> : <p className={`val ${!description && 'italic text-gray-500'}`}>{description || 'No description provided.'}</p>}
                  </div>
                  
                  <div className="grid grid-cols-2 gap-6">
                    <div>
                      <label className="lbl">Category</label>
-                     {isEditing ? (
+                     {isEditing && identityEditable ? (
                         isCreatingCat ? (
                           <div className="flex items-center gap-2">
                             <input autoFocus placeholder="New Category Name" value={newCatName} onChange={e=>setNewCatName(e.target.value)} className={`${inpt} py-3`} />
@@ -241,7 +276,7 @@ function ItemMasterContent() {
                    
                    <div>
                      <label className="lbl">Unit of Measure</label>
-                     {isEditing ? (
+                     {isEditing && identityEditable ? (
                         isCreatingUnit ? (
                           <div className="flex items-center gap-2">
                             <input autoFocus placeholder="Unit Name" value={newUnitName} onChange={e=>setNewUnitName(e.target.value)} className={`${inpt} py-3`} />

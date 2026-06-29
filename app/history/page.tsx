@@ -19,21 +19,28 @@ export default function HistoryPage() {
       if (!organization) return
       setLoading(true)
 
-      // 1. Fetch Materials for the Filter Dropdown
+      // 1. Fetch the org's goods for the Filter Dropdown (identity via catalog_items)
       const { data: matData } = await supabase
-        .from('materials')
-        .select('id, name')
-        .or(`organization_id.eq.${organization.id},organization_id.is.null`)
-        .order('name')
-      
-      if (matData) setMaterials(matData)
+        .from('org_materials')
+        .select('id, catalog_items(name)')
+        .eq('organization_id', organization.id)
 
-      // 2. Fetch the Ledger (Removed the broken 'unit' query)
+      if (matData) {
+        const mapped = matData
+          .map((row) => {
+            const catalog = Array.isArray(row.catalog_items) ? row.catalog_items[0] : row.catalog_items
+            return { id: row.id, name: catalog?.name ?? '' }
+          })
+          .sort((a, b) => a.name.localeCompare(b.name))
+        setMaterials(mapped)
+      }
+
+      // 2. Fetch the Ledger. The ledger denormalizes the good name into material_name, so we no
+      //    longer embed materials — just the location.
       let query = supabase
         .from('inventory_movements')
         .select(`
           *,
-          materials ( name ), 
           locations ( name )
         `)
         .eq('organization_id', organization.id)
@@ -151,7 +158,7 @@ export default function HistoryPage() {
                           </span>
                         </td>
                         <td className="p-5">
-                          <p className="font-black text-gray-200 group-hover:text-white transition-colors">{row.materials?.name || 'Deleted Good'}</p>
+                          <p className="font-black text-gray-200 group-hover:text-white transition-colors">{row.material_name || 'Deleted Good'}</p>
                         </td>
                         <td className="p-5 text-gray-400 font-bold">{row.locations?.name || 'Unassigned'}</td>
                         <td className={`p-5 text-right font-black text-sm tracking-tighter ${row.quantity > 0 ? 'text-purple-400' : 'text-yellow-500'}`}>

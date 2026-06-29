@@ -48,8 +48,8 @@ function CategoriesContent() {
   }
 
   const handleDelete = async (id: number, name: string) => {
-    // Relational Lock: Check if any materials use this category_id
-    const { count } = await supabase.from('materials').select('*', { count: 'exact', head: true }).eq('category_id', id)
+    // Relational Lock: Check if any catalog items use this category_id
+    const { count } = await supabase.from('catalog_items').select('*', { count: 'exact', head: true }).eq('category_id', id)
     if (count && count > 0) return alert(`BLOCKED: Cannot delete "${name}". It is currently assigned to ${count} master goods.`)
 
     if (confirm(`Are you sure you want to delete the category "${name}"?`)) {
