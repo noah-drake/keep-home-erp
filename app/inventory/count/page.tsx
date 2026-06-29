@@ -4,6 +4,17 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../../context/OrganizationContext'
 import { ClipboardCheck, MapPin, Search, PlusCircle } from 'lucide-react'
 import { supabase } from '@/utils/supabase'
+import { useLocations } from '../../hooks/useLocations'
+import { useMaterials } from '../../hooks/useMaterials'
+import { buildCountAdjustments } from '@/lib/transactions'
+
+/** A line on the audit sheet: its expected quantity plus a flag for goods the auditor adds. */
+interface CountRow {
+  material_id: string
+  material_name: string
+  quantity: number
+  isFound?: boolean
+}
 
 function CountEngineContent() {
   const router = useRouter()
@@ -11,43 +22,35 @@ function CountEngineContent() {
   const defaultLocId = searchParams.get('location_id')
   const { organization } = useOrganization()
 
-  const [loading, setLoading] = useState(true)
+  const { locations, loading: locationsLoading } = useLocations()
+  // Audits can count shared/global goods too, not just org-owned ones.
+  const { materials, loading: materialsLoading } = useMaterials({ includeGlobal: true })
+  const loading = locationsLoading || materialsLoading
+
   const [saving, setSaving] = useState(false)
-  const [locations, setLocations] = useState<any[]>([])
-  const [materials, setMaterials] = useState<any[]>([])
   const [locationId, setLocationId] = useState(defaultLocId || '')
-  
-  const [expectedStock, setExpectedStock] = useState<any[]>([])
+
+  const [expectedStock, setExpectedStock] = useState<CountRow[]>([])
   const [counts, setCounts] = useState<Record<string, string>>({})
   const [searchTerm, setSearchTerm] = useState('')
-
-  useEffect(() => {
-    const fetchBaseData = async () => {
-      if (!organization) return
-      setLoading(true)
-      const [locRes, matRes] = await Promise.all([
-        supabase.from('locations').select('*').eq('organization_id', organization.id).order('name'),
-        // CORRECTED QUERY: Explicitly handle OR logic for Shared items
-        supabase.from('materials').select('*').or(`organization_id.eq.${organization.id},organization_id.is.null`).eq('is_active', true).order('name')
-      ])
-      if (locRes.data) setLocations(locRes.data)
-      if (matRes.data) setMaterials(matRes.data)
-      setLoading(false)
-    }
-    fetchBaseData()
-  }, [organization])
 
   useEffect(() => {
     const fetchLocationStock = async () => {
       if (!locationId || !organization) return
       const { data } = await supabase.from('view_stock_by_location').select('*').eq('location_id', locationId).gt('quantity', 0)
       if (data) {
-        setExpectedStock(data)
+        const rows: CountRow[] = data
+          .filter((r) => r.material_id)
+          .map((r) => ({
+            material_id: r.material_id as string,
+            material_name: r.material_name ?? '',
+            quantity: r.quantity ?? 0,
+          }))
+        setExpectedStock(rows)
+
         const initialCounts: Record<string, string> = {}
-        data.forEach(item => {
-          if (item.material_id) {
-            initialCounts[String(item.material_id)] = String(item.quantity)
-          }
+        rows.forEach((item) => {
+          initialCounts[item.material_id] = String(item.quantity)
         })
         setCounts(initialCounts)
       }
@@ -56,7 +59,7 @@ function CountEngineContent() {
   }, [locationId, organization])
 
   const handleAddZeroStockItem = (materialId: string) => {
-    if (counts[materialId] !== undefined) return 
+    if (counts[materialId] !== undefined) return
     const mat = materials.find(m => m.id === materialId)
     if (!mat) return
     setExpectedStock(prev => [{ material_id: mat.id, material_name: mat.name, quantity: 0, isFound: true }, ...prev])
@@ -64,27 +67,17 @@ function CountEngineContent() {
   }
 
   const handleSubmit = async () => {
-    if (!locationId) return
-    const adjustments: any[] = []
-    
-    expectedStock.forEach(item => {
-      const actualRaw = counts[item.material_id]
-      if (actualRaw === '' || actualRaw === undefined) return
-      
-      const actual = parseFloat(actualRaw)
-      const delta = actual - item.quantity
-      
-      if (delta !== 0) {
-        adjustments.push({ 
-          organization_id: organization.id, 
-          material_id: item.material_id, 
-          location_id: locationId, 
-          quantity: delta, 
-          movement_type: delta > 0 ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT', 
-          notes: `Audit: Found ${actual}, Expected ${item.quantity}` 
-        })
-      }
-    })
+    if (!locationId || !organization) return
+
+    const adjustments = buildCountAdjustments(
+      expectedStock.map((item) => ({
+        material_id: item.material_id,
+        expected: item.quantity,
+        counted: counts[item.material_id],
+      })),
+      locationId,
+      organization.id
+    )
 
     if (adjustments.length === 0) return alert("All counts match expected stock. No changes needed.")
 
@@ -101,7 +94,7 @@ function CountEngineContent() {
   return (
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
       <div className="max-w-4xl mx-auto space-y-8">
-        
+
         <header className="border-b border-gray-800 pb-6 flex justify-between items-center">
           <div>
             <h1 className="text-4xl font-black uppercase italic tracking-tighter">Stock Audit</h1>
@@ -129,9 +122,9 @@ function CountEngineContent() {
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
                 <input placeholder="Filter items..." className="w-full bg-black border border-gray-800 p-3 pl-12 rounded-xl text-xs font-bold outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
               </div>
-              
+
               <div className="w-full md:w-72">
-                <select 
+                <select
                   className="w-full bg-purple-900/10 border border-purple-500/30 text-purple-400 p-3 rounded-xl text-[10px] font-black uppercase outline-none focus:border-purple-500 appearance-none"
                   onChange={(e) => {
                     if (e.target.value) handleAddZeroStockItem(e.target.value);

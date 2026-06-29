@@ -218,7 +218,7 @@ function DashboardContent() {
           <div className="flex-shrink-0">
             <h1 className="text-3xl font-black uppercase tracking-tighter italic text-gray-100 leading-none">My Keep</h1>
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center gap-2 mt-1.5">
-              <Shield size={12} className="text-purple-500" /> {organization.name} Operations
+              <Shield size={12} className="text-purple-500" /> {organization?.name} Operations
             </p>
           </div>
 

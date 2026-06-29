@@ -51,10 +51,10 @@ export default function Navbar() {
             <Shield size={14} className="text-purple-500" />
             <select 
               value={organization?.id || ''} 
-              onChange={(e) => setOrganization(allOrganizations.find((o: any) => o.id === e.target.value))}
+              onChange={(e) => setOrganization(allOrganizations.find((o) => o.id === e.target.value) ?? null)}
               className="bg-transparent text-[10px] font-black uppercase tracking-widest text-gray-300 outline-none cursor-pointer hover:text-purple-400 transition-colors truncate max-w-[120px]"
             >
-              {allOrganizations.map((org: any) => <option key={org.id} value={org.id} className="bg-gray-900">{org.name}</option>)}
+              {allOrganizations.map((org) => <option key={org.id} value={org.id} className="bg-gray-900">{org.name}</option>)}
             </select>
           </div>
           

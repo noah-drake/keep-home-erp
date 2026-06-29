@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import { OrganizationProvider } from './context/OrganizationContext'
 import Navigation from './components/Navigation'
+import ErrorBoundary from './components/ErrorBoundary'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -41,7 +42,10 @@ export default function RootLayout({
           <Navigation />
 
           <main className="max-w-6xl mx-auto pt-6 px-4">
-            {children}
+            {/* Isolate page errors so one crash shows a fallback instead of a blank app */}
+            <ErrorBoundary>
+              {children}
+            </ErrorBoundary>
           </main>
 
         </OrganizationProvider>

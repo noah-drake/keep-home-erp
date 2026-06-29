@@ -99,6 +99,7 @@ function ItemMasterContent() {
   // --- INLINE MASTER DATA CREATION LOGIC ---
   const saveNewCategory = async () => {
     if (!newCatName.trim()) return setIsCreatingCat(false)
+    if (!organization) return
     const { data, error } = await supabase.from('categories').insert([{ name: newCatName, organization_id: organization.id }]).select().single()
     if (data) {
       setCategories([...categories, data].sort((a, b) => a.name.localeCompare(b.name)))
@@ -110,6 +111,7 @@ function ItemMasterContent() {
 
   const saveNewUnit = async () => {
     if (!newUnitName.trim()) return setIsCreatingUnit(false)
+    if (!organization) return
     const { data, error } = await supabase.from('units').insert([{ name: newUnitName, organization_id: organization.id }]).select().single()
     if (data) {
       setUnits([...units, data].sort((a, b) => a.name.localeCompare(b.name)))
@@ -121,6 +123,7 @@ function ItemMasterContent() {
 
   const saveNewLocation = async () => {
     if (!newLocName.trim()) return setIsCreatingLoc(false)
+    if (!organization) return
     const { data, error } = await supabase.from('locations').insert([{ name: newLocName, organization_id: organization.id }]).select().single()
     if (data) {
       setLocations([...locations, data].sort((a, b) => a.name.localeCompare(b.name)))

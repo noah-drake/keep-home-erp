@@ -2,15 +2,27 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/utils/supabase'
+import type { Tables } from '@/types/database.types'
 
-const OrganizationContext = createContext<any>(null)
+export type Organization = Tables<'organizations'>
+
+export interface OrganizationContextValue {
+  /** The plant the user is currently operating in, or null before one is selected. */
+  organization: Organization | null
+  /** Every plant the signed-in user can access. */
+  allOrganizations: Organization[]
+  setOrganization: (org: Organization | null) => void
+  isLoading: boolean
+}
+
+const OrganizationContext = createContext<OrganizationContextValue | null>(null)
 
 export function OrganizationProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  
-  const [organization, setOrganization] = useState<any>(null)
-  const [allOrganizations, setAllOrganizations] = useState<any[]>([])
+
+  const [organization, setOrganization] = useState<Organization | null>(null)
+  const [allOrganizations, setAllOrganizations] = useState<Organization[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -23,16 +35,21 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
       }
 
       if (session) {
-        const { data: members, error } = await supabase.from('organization_members')
+        const { data: members } = await supabase.from('organization_members')
             .select('organizations(*)')
             .eq('user_id', session.user.id)
-            
-        const validOrgs = members ? members.map((m: any) => m.organizations).filter(Boolean) : []
+
+        // A member row embeds its organization; normalise to a flat, non-null list.
+        const validOrgs: Organization[] = (members ?? []).flatMap((m) => {
+          const orgs = m.organizations
+          if (!orgs) return []
+          return Array.isArray(orgs) ? orgs : [orgs]
+        })
 
         if (validOrgs.length > 0) {
             setAllOrganizations(validOrgs)
             const savedOrgId = localStorage.getItem('activeOrgId')
-            const savedOrg = validOrgs.find((o: any) => o.id === savedOrgId)
+            const savedOrg = validOrgs.find((o) => o.id === savedOrgId)
             setOrganization(savedOrg || validOrgs[0])
         } else {
             // THE BOUNCER: If NO plants, explicitly nullify org and send to Settings/Onboarding
@@ -48,7 +65,7 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
 
     loadSessionAndOrgs()
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
         if (event === 'SIGNED_OUT') {
             setOrganization(null)
             setAllOrganizations([])
@@ -61,7 +78,7 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
     return () => authListener.subscription.unsubscribe()
   }, [pathname, router])
 
-  const handleSetOrganization = (org: any) => {
+  const handleSetOrganization = (org: Organization | null) => {
       setOrganization(org)
       if (org) {
           localStorage.setItem('activeOrgId', org.id)
@@ -85,4 +102,10 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
   )
 }
 
-export const useOrganization = () => useContext(OrganizationContext)
+export function useOrganization(): OrganizationContextValue {
+  const ctx = useContext(OrganizationContext)
+  if (!ctx) {
+    throw new Error('useOrganization must be used within an OrganizationProvider')
+  }
+  return ctx
+}

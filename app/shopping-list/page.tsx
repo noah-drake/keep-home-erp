@@ -1,71 +1,31 @@
 'use client'
-import { useEffect, useState, Suspense } from 'react'
+import { useState, Suspense } from 'react'
 import { useOrganization } from '../context/OrganizationContext'
 import { useRouter } from 'next/navigation'
-import { ShoppingCart, AlertTriangle, Package, ArrowDownLeft, Settings2, MapPin } from 'lucide-react'
+import { ShoppingCart, AlertTriangle, Package, ArrowDownLeft, Settings2 } from 'lucide-react'
 import { supabase } from '@/utils/supabase'
+import { useProcurementList } from '../hooks/useProcurementList'
+import { buildReorderReceipt, isMissingMasterData, type StockRow } from '@/lib/mrp'
 
 function ReplenishmentContent() {
   const router = useRouter()
   const { organization } = useOrganization()
-  const [items, setItems] = useState<any[]>([])
+  const { items, loading, refetch } = useProcurementList()
   const [processing, setProcessing] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
 
-  const fetchList = async () => {
+  const handlePurchase = async (item: StockRow) => {
     if (!organization) return
-    setLoading(true)
-    
-    // Fetch all stock data
-    const { data, error } = await supabase
-      .from('view_current_stock')
-      .select('*')
-      .eq('organization_id', organization.id)
 
-    if (error) {
-      console.error(error)
-      setLoading(false)
-      return
-    }
-
-    if (data) {
-      // Filter logic: Must be active, must have an MRP (>0), and stock must be <= MRP
-      const procurementList = data.filter(i => {
-        // Fallback to 0 if the database view returns null
-        const stock = i.current_stock ?? 0;
-        const reorder = i.reorder_point ?? 0;
-        
-        // Use the correct 'active' column name and safe math
-        return i.active !== false && reorder > 0 && stock <= reorder;
-      })
-      setItems(procurementList)
-    }
-    setLoading(false)
-  }
-
-  useEffect(() => { fetchList() }, [organization])
-
-  const handlePurchase = async (item: any) => {
-    // Hard validation (UI should prevent reaching here, but backend lock is safe)
-    if (!item.default_location_id || !item.lot_quantity || item.lot_quantity <= 0) {
+    // Hard validation (UI should prevent reaching here, but a backend lock is safe).
+    const receipt = buildReorderReceipt(item, organization.id)
+    if (!receipt) {
       return alert("BLOCKED: Missing Master Data. Please configure a Default Store and Lot Quantity first.")
     }
 
     setProcessing(item.material_id)
-
-    // Insert to the centralized movements ledger
-    const { error } = await supabase.from('inventory_movements').insert([{
-        material_id: item.material_id,
-        location_id: item.default_location_id,
-        quantity: item.lot_quantity,
-        movement_type: 'INBOUND',
-        organization_id: organization?.id,
-        notes: 'Auto-Receipt via Procurement List'
-    }])
-
+    const { error } = await supabase.from('inventory_movements').insert([receipt])
     if (error) alert(error.message)
-    else fetchList() // Refresh list to remove the purchased item
-    
+    else refetch() // Refresh list to remove the purchased item
     setProcessing(null)
   }
 
@@ -74,7 +34,7 @@ function ReplenishmentContent() {
   return (
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
       <div className="max-w-5xl mx-auto space-y-8">
-        
+
         {/* HEADER */}
         <header className="border-b border-gray-800 pb-6">
           <h1 className="text-4xl font-black uppercase tracking-tighter italic text-gray-100 mb-1">Procurement</h1>
@@ -92,11 +52,11 @@ function ReplenishmentContent() {
           ) : (
             items.map(item => {
               // Master Data Health Check
-              const isMissingData = !item.default_location_id || !item.lot_quantity || item.lot_quantity <= 0
+              const missingData = isMissingMasterData(item)
 
               return (
                 <div key={item.material_id} className="bg-[#0f0f0f] p-6 rounded-[2.5rem] border border-gray-800 flex flex-col md:flex-row justify-between md:items-center gap-6 group hover:border-purple-500/50 transition-all shadow-xl">
-                  
+
                   {/* ITEM IDENTITY & STOCK */}
                   <div className="flex-1 cursor-pointer" onClick={() => router.push(`/materials/${item.material_id}`)}>
                     <div className="flex items-center gap-2 mb-2">
@@ -112,8 +72,8 @@ function ReplenishmentContent() {
 
                   {/* ACTION AREA */}
                   <div className="flex items-center gap-6 border-t md:border-t-0 border-gray-800 pt-4 md:pt-0">
-                    
-                    {isMissingData ? (
+
+                    {missingData ? (
                       // MISSING DATA WARNING
                       <div className="flex items-center gap-4 bg-red-950/20 border border-red-900/30 p-4 rounded-2xl w-full md:w-auto">
                         <AlertTriangle className="text-red-500 shrink-0" size={20} />
@@ -131,7 +91,7 @@ function ReplenishmentContent() {
                             <span className="block text-[8px] text-gray-600 font-black uppercase tracking-widest mb-1">Order Lot</span>
                             <span className="text-xl font-mono font-black text-purple-400">+{item.lot_quantity}</span>
                         </div>
-                        <button 
+                        <button
                           onClick={() => handlePurchase(item)}
                           disabled={processing === item.material_id}
                           className="bg-purple-600 px-6 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-purple-500 disabled:opacity-50 text-white transition-all shadow-lg active:scale-95 flex items-center gap-2 w-full md:w-auto justify-center"

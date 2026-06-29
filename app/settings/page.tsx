@@ -56,7 +56,8 @@ function SettingsContent() {
   }, [organization])
 
   const fetchTeamMembers = async () => {
-      const { data, error } = await supabase.rpc('get_team_roster', { org_id: organization?.id })
+      if (!organization) return
+      const { data, error } = await supabase.rpc('get_team_roster', { org_id: organization.id })
       if (data) {
           const mappedMembers = data.map((m: any) => ({
               user_id: m.user_id, role: m.role, profiles: { email: m.email, full_name: m.full_name }
@@ -134,7 +135,8 @@ function SettingsContent() {
 
   const handleRemoveMember = async (userId: string) => {
       if (!confirm("Revoke this operator's access? They will be instantly disconnected from this chamber.")) return
-      const { error } = await supabase.from('organization_members').delete().eq('organization_id', organization?.id).eq('user_id', userId)
+      if (!organization) return
+      const { error } = await supabase.from('organization_members').delete().eq('organization_id', organization.id).eq('user_id', userId)
       if (error) alert(error.message)
       else { 
         setMembers(members.filter(m => m.user_id !== userId))

@@ -1,10 +1,22 @@
 'use client'
-import { useEffect, useState, Suspense } from 'react'
+import { useEffect, useRef, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../context/OrganizationContext'
 import { Plus, Trash2, Save, Package, Copy, CheckSquare, Square, ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Barcode } from 'lucide-react'
 import { supabase } from '@/utils/supabase'
-import type { Tables, TablesInsert } from '@/types/database.types'
+import type { Tables } from '@/types/database.types'
+import { useMaterials } from '../hooks/useMaterials'
+import { useLocations } from '../hooks/useLocations'
+import { useStockByLocation } from '../hooks/useStockByLocation'
+import {
+  validateBatch,
+  buildMovements,
+  suggestDefaultsForMaterial,
+  isCompleteLine,
+  type TransactionLine,
+  type MovementKind,
+} from '@/lib/transactions'
+import { collectLineErrors } from '@/lib/schemas'
 
 function TransactionEngine() {
   const router = useRouter()
@@ -12,99 +24,62 @@ function TransactionEngine() {
   const urlMaterialId = searchParams.get('material_id')
   const { organization } = useOrganization()
 
-  const [loading, setLoading] = useState(true)
+  const { materials, loading: materialsLoading } = useMaterials()
+  const { locations, loading: locationsLoading } = useLocations()
+  const { stockByLocation, loading: stockLoading } = useStockByLocation()
+  const loading = materialsLoading || locationsLoading || stockLoading
+
   const [saving, setSaving] = useState(false)
   const [autoSwitched, setAutoSwitched] = useState(false) // Tracks if the system intervened
-  
-  const [materials, setMaterials] = useState<Tables<'materials'>[]>([])
-  const [locations, setLocations] = useState<Tables<'locations'>[]>([])
-  const [stockByLoc, setStockByLoc] = useState<Tables<'view_stock_by_location'>[]>([])
   const [primaryMaterial, setPrimaryMaterial] = useState<Tables<'materials'> | null>(null)
 
   // Transaction State
-  const [lines, setLines] = useState<{
-    id: number
-    material_id: string
-    location_id: string
-    to_location_id: string
-    quantity: string
-    type: 'INBOUND' | 'OUTBOUND' | 'TRANSFER'
-    notes: string
-  }[]>([])
+  const [lines, setLines] = useState<TransactionLine[]>([])
   const [selectedLines, setSelectedLines] = useState<number[]>([])
 
+  // Seed the first line once base data has loaded, applying the smart default for the
+  // good passed via the URL (e.g. arriving from a scan or a material detail page).
+  const initializedRef = useRef(false)
   useEffect(() => {
-    const fetchData = async () => {
-      if (!organization) return
-      setLoading(true)
-      
-      const [matRes, locRes, sblRes] = await Promise.all([
-        supabase.from('materials').select('*').eq('organization_id', organization.id).eq('is_active', true).order('name'),
-        supabase.from('locations').select('*').eq('organization_id', organization.id).order('name'),
-        supabase.from('view_stock_by_location').select('*').eq('organization_id', organization.id)
-      ])
+    if (loading || initializedRef.current) return
+    initializedRef.current = true
 
-      if (matRes.data) setMaterials(matRes.data)
-      if (locRes.data) setLocations(locRes.data)
-      if (sblRes.data) setStockByLoc(sblRes.data)
-      
-      // SMART INIT LOGIC ON PAGE LOAD
-      let initType = 'OUTBOUND'
-      let initLoc = ''
-      
-      if (urlMaterialId && matRes.data) {
-        const targetMat = matRes.data.find(m => String(m.id) === urlMaterialId)
-        if (targetMat) {
-          setPrimaryMaterial(targetMat)
-          const itemStock = sblRes.data?.filter(s => String(s.material_id) === urlMaterialId && (s.quantity ?? 0) > 0) || []
-          const totalStock = itemStock.reduce((sum, s) => sum + (s.quantity ?? 0), 0)
-          
-          if (totalStock <= 0) {
-             // Out of stock: Default to Inbound & Default Location
-             initType = 'INBOUND'
-             initLoc = targetMat.default_location_id || ''
-             setAutoSwitched(true) // System intervened
-          } else if (itemStock.length === 1) {
-             // In stock in exactly ONE location: Default to Outbound & auto-select that location
-             initType = 'OUTBOUND'
-             initLoc = itemStock[0].location_id || ''
-          }
-        }
+    let initType: MovementKind = 'OUTBOUND'
+    let initLoc = ''
+
+    if (urlMaterialId) {
+      const targetMat = materials.find(m => String(m.id) === urlMaterialId)
+      if (targetMat) {
+        setPrimaryMaterial(targetMat)
+        const cells = stockByLocation.filter(s => String(s.material_id) === urlMaterialId)
+        const suggestion = suggestDefaultsForMaterial(cells, targetMat.default_location_id)
+        initType = suggestion.type
+        initLoc = suggestion.locationId
+        if (suggestion.type === 'INBOUND') setAutoSwitched(true) // out of stock -> receipt
       }
-
-      setLines([{ 
-        id: Date.now(), 
-        material_id: urlMaterialId || '', 
-        location_id: initLoc, 
-        to_location_id: '', 
-        quantity: '', 
-        type: initType as 'INBOUND' | 'OUTBOUND' | 'TRANSFER', 
-        notes: '' 
-      }])
-      
-      setLoading(false)
     }
-    fetchData()
-  }, [organization, urlMaterialId])
+
+    setLines([{
+      id: Date.now(),
+      material_id: urlMaterialId || '',
+      location_id: initLoc,
+      to_location_id: '',
+      quantity: '',
+      type: initType,
+      notes: '',
+    }])
+  }, [loading, urlMaterialId, materials, stockByLocation])
 
   // --- LINE MANAGEMENT ---
   const addLine = () => {
-    setLines([...lines, { id: Date.now(), material_id: '', location_id: '', to_location_id: '', quantity: '', type: 'OUTBOUND' as const, notes: '' }])
+    setLines([...lines, { id: Date.now(), material_id: '', location_id: '', to_location_id: '', quantity: '', type: 'OUTBOUND', notes: '' }])
   }
 
-  const updateLine = (id: number, field: string, value: string | number) => {
+  const updateLine = (id: number, field: keyof TransactionLine, value: string) => {
     setLines(lines.map(l => l.id === id ? { ...l, [field]: value } : l))
   }
 
-  const duplicateLine = (line: {
-    id: number
-    material_id: string
-    location_id: string
-    to_location_id: string
-    quantity: string
-    type: 'INBOUND' | 'OUTBOUND' | 'TRANSFER'
-    notes: string
-  }) => {
+  const duplicateLine = (line: TransactionLine) => {
     const newLine = { ...line, id: Date.now() + Math.random() }
     const index = lines.findIndex(l => l.id === line.id)
     const newLines = [...lines]
@@ -120,41 +95,25 @@ function TransactionEngine() {
       return
     }
 
-    const itemStock = stockByLoc.filter(s => String(s.material_id) === newMaterialId && (s.quantity ?? 0) > 0)
-    const totalStock = itemStock.reduce((sum, s) => sum + (s.quantity ?? 0), 0)
-    
-      setLines(lines.map(l => {
-        if (l.id === id) {
-          let newType: 'INBOUND' | 'OUTBOUND' | 'TRANSFER' = l.type
-          let newLoc = l.location_id
+    const cells = stockByLocation.filter(s => String(s.material_id) === newMaterialId)
+    const suggestion = suggestDefaultsForMaterial(cells, mat.default_location_id)
 
-          if (totalStock <= 0) {
-             newType = 'INBOUND'
-             newLoc = mat.default_location_id ?? ''
-          } else {
-             newType = 'OUTBOUND'
-             if (itemStock.length === 1) {
-               newLoc = itemStock[0].location_id ?? ''
-             } else {
-               newLoc = '' 
-             }
-          }
-
-          return { ...l, material_id: newMaterialId, type: newType, location_id: newLoc, to_location_id: '' }
-        }
-        return l
-      }))
+    setLines(lines.map(l =>
+      l.id === id
+        ? { ...l, material_id: newMaterialId, type: suggestion.type, location_id: suggestion.locationId, to_location_id: '' }
+        : l
+    ))
   }
 
-  const handleTypeChange = (id: number, newType: 'INBOUND' | 'OUTBOUND' | 'TRANSFER') => {
+  const handleTypeChange = (id: number, newType: MovementKind) => {
     setLines(lines.map(l => {
       if (l.id === id) {
         let newLoc = l.location_id
         const mat = materials.find(m => String(m.id) === l.material_id)
-        
+
         if (mat) {
-          const itemStock = stockByLoc.filter(s => String(s.material_id) === String(mat.id) && (s.quantity ?? 0) > 0)
-          
+          const itemStock = stockByLocation.filter(s => String(s.material_id) === String(mat.id) && (s.quantity ?? 0) > 0)
+
           if (newType === 'INBOUND') {
              newLoc = mat.default_location_id ?? ''
           } else if ((newType === 'OUTBOUND' || newType === 'TRANSFER') && itemStock.length === 1) {
@@ -187,61 +146,31 @@ function TransactionEngine() {
   }
 
   // --- SUBMISSION ---
-  const validateBatch = () => {
-    const projectedChanges = new Map<string, number>()
+  // Reject any batch that would drive a (good, location) cell negative, naming the offender.
+  const runStockValidation = (): boolean => {
+    const overdraw = validateBatch(lines, stockByLocation)
+    if (!overdraw) return true
 
-    for (const line of lines) {
-      if (!line.material_id || !line.location_id || !line.quantity) continue
-      const qty = parseFloat(line.quantity)
-      const key = `${line.material_id}|${line.location_id}`
-
-      if (line.type === 'OUTBOUND' || line.type === 'TRANSFER') {
-        projectedChanges.set(key, (projectedChanges.get(key) || 0) + qty)
-      }
-    }
-
-    for (const [key, totalRequested] of projectedChanges.entries()) {
-      const [mId, lId] = key.split('|')
-      const currentAvailable = stockByLoc.find(s => String(s.material_id) === String(mId) && String(s.location_id) === String(lId))?.quantity || 0
-      
-      if (totalRequested > currentAvailable) {
-        const matName = materials.find(m => String(m.id) === String(mId))?.name || "Item"
-        const locName = locations.find(l => String(l.id) === String(lId))?.name || "Location"
-        alert(`STOCK REJECTED: You are trying to move ${totalRequested} of ${matName} from ${locName}, but only ${currentAvailable} exist there.`)
-        return false
-      }
-    }
-    return true
+    const matName = materials.find(m => String(m.id) === overdraw.materialId)?.name || 'Item'
+    const locName = locations.find(l => String(l.id) === overdraw.locationId)?.name || 'Location'
+    alert(`STOCK REJECTED: You are trying to move ${overdraw.requested} of ${matName} from ${locName}, but only ${overdraw.available} exist there.`)
+    return false
   }
 
   const handleSubmit = async () => {
-    if (lines.length === 0) return alert("Add at least one valid line to commit.")
-    if (!validateBatch()) return
-    
+    if (!organization) return
+
+    const readyLines = lines.filter(isCompleteLine)
+    if (readyLines.length === 0) return alert('Add at least one valid line to commit.')
+
+    // Schema gate: positive quantities, transfers with a distinct destination, etc.
+    const lineErrors = collectLineErrors(readyLines)
+    if (lineErrors.length > 0) return alert(lineErrors[0].message)
+
+    if (!runStockValidation()) return
+
     setSaving(true)
-    const movements: TablesInsert<'inventory_movements'>[] = []
-
-    lines.forEach(line => {
-      if (!line.material_id || !line.location_id || !line.quantity) return
-      const qty = parseFloat(line.quantity)
-      
-      if (line.type === 'TRANSFER') {
-        movements.push(
-          { organization_id: organization.id, material_id: line.material_id, location_id: line.location_id, quantity: -qty, movement_type: 'TRANSFER_OUT', notes: line.notes || 'Transfer Out' },
-          { organization_id: organization.id, material_id: line.material_id, location_id: line.to_location_id, quantity: qty, movement_type: 'TRANSFER_IN', notes: line.notes || 'Transfer In' }
-        )
-      } else {
-        movements.push({
-          organization_id: organization.id,
-          material_id: line.material_id,
-          location_id: line.location_id,
-          quantity: line.type === 'OUTBOUND' ? -qty : qty,
-          movement_type: line.type,
-          notes: line.notes || null
-        })
-      }
-    })
-
+    const movements = buildMovements(lines, organization.id)
     const { error } = await supabase.from('inventory_movements').insert(movements)
     if (error) alert(error.message)
     else router.push('/history')
@@ -262,7 +191,7 @@ function TransactionEngine() {
   return (
     <div className="min-h-screen bg-[#0a0a0a] p-4 md:p-8 text-white font-sans pb-32">
       <div className="max-w-[1440px] mx-auto space-y-6">
-        
+
         <header className="border-b border-gray-800 pb-4 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-black uppercase tracking-tighter italic">Ledger Entry</h1>
@@ -285,7 +214,7 @@ function TransactionEngine() {
                 <h2 className="text-xl font-black uppercase tracking-tight leading-none text-gray-200">{primaryMaterial.name}</h2>
               </div>
             </div>
-            
+
             {/* Contextual Warning Flag */}
             {autoSwitched && lines[0]?.type === 'INBOUND' && (
               <div className="bg-yellow-950/10 border border-yellow-900/30 px-4 py-2.5 rounded-xl flex items-center gap-3">
@@ -324,7 +253,7 @@ function TransactionEngine() {
           )}
 
           {lines.map((line) => {
-            const activeStock = stockByLoc.filter(s => String(s.material_id) === String(line.material_id) && (s.quantity ?? 0) > 0)
+            const activeStock = stockByLocation.filter(s => String(s.material_id) === String(line.material_id) && (s.quantity ?? 0) > 0)
             const isSelected = selectedLines.includes(line.id)
             const focusStyle = getFocusColor(line.type)
 
@@ -332,7 +261,7 @@ function TransactionEngine() {
               <div key={line.id} className={`bg-[#0f0f0f] border p-4 rounded-3xl shadow-md transition-colors ${isSelected ? 'border-purple-500/50 bg-purple-900/5' : 'border-gray-800 hover:border-gray-700'}`}>
                 {/* DENSE HORIZONTAL ROW LAYOUT */}
                 <div className="flex flex-wrap lg:flex-nowrap items-end gap-4">
-                  
+
                   {/* Select Checkbox */}
                   <div className="pb-2.5 flex items-center justify-center shrink-0">
                     <button onClick={() => toggleLineSelect(line.id)} className="text-gray-600 hover:text-purple-400 transition-colors">
@@ -344,7 +273,7 @@ function TransactionEngine() {
                   <div className="w-full sm:w-1/2 lg:w-40 shrink-0">
                     <label className={lbl}>Operation</label>
                     <div className="relative">
-                      <select value={line.type} onChange={e => handleTypeChange(line.id, e.target.value as 'INBOUND' | 'OUTBOUND' | 'TRANSFER')} className={`${inpt} pl-9 ${focusStyle}`}>
+                      <select value={line.type} onChange={e => handleTypeChange(line.id, e.target.value as MovementKind)} className={`${inpt} pl-9 ${focusStyle}`}>
                         <option value="OUTBOUND">Issue (-)</option>
                         <option value="INBOUND">Receipt (+)</option>
                         <option value="TRANSFER">Transfer</option>
@@ -394,11 +323,11 @@ function TransactionEngine() {
                   {/* Notes (Single Line) */}
                   <div className="w-full lg:w-48 shrink-0">
                     <label className={lbl}>Notes</label>
-                    <input 
-                      placeholder="Details..." 
-                      value={line.notes} 
-                      onChange={e => updateLine(line.id, 'notes', e.target.value)} 
-                      className={`${inpt} font-medium text-gray-300 italic ${focusStyle}`} 
+                    <input
+                      placeholder="Details..."
+                      value={line.notes}
+                      onChange={e => updateLine(line.id, 'notes', e.target.value)}
+                      className={`${inpt} font-medium text-gray-300 italic ${focusStyle}`}
                     />
                   </div>
 

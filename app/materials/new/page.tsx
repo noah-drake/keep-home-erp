@@ -1,17 +1,20 @@
 'use client'
 import { useState, Suspense, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useOrganization } from '../../context/OrganizationContext'
 import { ArrowLeft, Box, Save, Search, Check, X, CheckCircle2, Package, List, Copy, Settings2, ToggleLeft, ToggleRight } from 'lucide-react'
 import { supabase } from '@/utils/supabase'
 
 function NewMaterialContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { organization } = useOrganization()
-  
+
   // Form State (Using strictly correct schema types)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  // Pre-filled when arriving from the scanner with an unrecognised barcode.
+  const [barcode, setBarcode] = useState(() => searchParams.get('barcode') ?? '')
   const [categoryId, setCategoryId] = useState('')
   const [unitId, setUnitId] = useState('')
   const [defaultLocationId, setDefaultLocationId] = useState('')
@@ -59,6 +62,7 @@ function NewMaterialContent() {
   // --- INLINE MASTER DATA CREATION LOGIC ---
   const saveNewCategory = async () => {
     if (!newCatName.trim()) return setIsCreatingCat(false)
+    if (!organization) return
     const { data, error } = await supabase.from('categories').insert([{ name: newCatName, organization_id: organization.id }]).select().single()
     if (data) {
       setCategories([...categories, data].sort((a, b) => a.name.localeCompare(b.name)))
@@ -70,6 +74,7 @@ function NewMaterialContent() {
 
   const saveNewUnit = async () => {
     if (!newUnitName.trim()) return setIsCreatingUnit(false)
+    if (!organization) return
     const { data, error } = await supabase.from('units').insert([{ name: newUnitName, organization_id: organization.id }]).select().single()
     if (data) {
       setUnits([...units, data].sort((a, b) => a.name.localeCompare(b.name)))
@@ -81,6 +86,7 @@ function NewMaterialContent() {
 
   const saveNewLocation = async () => {
     if (!newLocName.trim()) return setIsCreatingLoc(false)
+    if (!organization) return
     const { data, error } = await supabase.from('locations').insert([{ name: newLocName, organization_id: organization.id }]).select().single()
     if (data) {
       setLocations([...locations, data].sort((a, b) => a.name.localeCompare(b.name)))
@@ -125,6 +131,7 @@ function NewMaterialContent() {
       name,
       description: description || null,
       category_id: categoryId ? parseInt(categoryId) : null, // Ensures integer for categories
+      barcode: barcode.trim() || null,
       unit_id: unitId || null,
       default_location_id: defaultLocationId || null,
       is_mrp_enabled: isMrpEnabled,
@@ -145,7 +152,7 @@ function NewMaterialContent() {
   }
 
   const handleReset = () => {
-    setName(''); setDescription(''); setCategoryId(''); setUnitId(''); setDefaultLocationId('')
+    setName(''); setDescription(''); setBarcode(''); setCategoryId(''); setUnitId(''); setDefaultLocationId('')
     setIsMrpEnabled(false); setReorderPoint(''); setLotQuantity('')
     setSuccessData(null)
     window.scrollTo(0, 0)
@@ -227,6 +234,11 @@ function NewMaterialContent() {
               <div className="md:col-span-2">
                 <label className={lbl}>Description / Notes</label>
                 <textarea placeholder="Optional details..." value={description} onChange={e => setDescription(e.target.value)} className={`${inpt} h-20 resize-none`} />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className={lbl}>Barcode {barcode && <span className="text-purple-500">(scanned)</span>}</label>
+                <input placeholder="Scan or type a barcode..." value={barcode} onChange={e => setBarcode(e.target.value)} className={`${inpt} font-mono`} />
               </div>
               
               {/* CATEGORY FIELD */}
